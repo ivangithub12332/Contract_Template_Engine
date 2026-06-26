@@ -2,18 +2,13 @@
 
 ## Запуск
 
-docker compose up -d
+```
+docker compose up
+```
 
-docker exec -it docs-app bash
+Контейнер сам поставит зависимости через composer, создаст `.env` из
+`.env.example`, сгенерирует `APP_KEY`, прогонит миграции и поднимет
+сервер на [http://localhost:8000](http://localhost:8000). Повторный
+запуск идемпотентен — шаги пропускаются, если уже выполнены.
 
-cd /var/www/app
-
-composer install
-
-cp .env.example .env
-
-php artisan key:generate
-
-php artisan migrate
-
-php artisan serve --host=0.0.0.0 --port=8000
+API доступен по адресу `http://localhost:8000/api`.
