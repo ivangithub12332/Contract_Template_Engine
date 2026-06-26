@@ -1,0 +1,36 @@
+services:
+  app:
+    image: himanshuramavat/php-ci:8.4
+    container_name: docs-app
+    restart: unless-stopped
+    working_dir: /var/www/app
+    volumes:
+      - ./:/var/www
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DB_CONNECTION=pgsql
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_DATABASE=docs_db
+      - DB_USERNAME=docs_user
+      - DB_PASSWORD=docs_password
+    command: bash -c "tail -f /dev/null"
+
+  db:
+    image: postgres:15-alpine
+    container_name: docs-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=docs_db
+      - POSTGRES_USER=docs_user
+      - POSTGRES_PASSWORD=docs_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
