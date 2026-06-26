@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\TemplateController;
+use App\Http\Controllers\Api\VariableController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -20,6 +21,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/templates/{template}/versions', [TemplateController::class, 'storeVersion']);
         Route::post('/templates/{template}/variables/extract', [TemplateController::class, 'extractVariables']);
         Route::post('/templates/{template}/publish', [TemplateController::class, 'publish']);
+
+        Route::post('/templates/{template}/variables', [VariableController::class, 'store']);
+        Route::put('/variables/{variable}', [VariableController::class, 'update']);
+        Route::delete('/variables/{variable}', [VariableController::class, 'destroy']);
     });
 
     Route::delete('/templates/{template}', [TemplateController::class, 'destroy'])
