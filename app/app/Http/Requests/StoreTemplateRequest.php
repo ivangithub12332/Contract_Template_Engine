@@ -12,7 +12,7 @@ class StoreTemplateRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return in_array($this->user()?->role, ['admin', 'methodologist'], true);
     }
 
     /**
@@ -23,7 +23,12 @@ class StoreTemplateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'name' => ['required', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:255'],
+            'format' => ['required', 'in:docx,pdf'],
+            'tags' => ['nullable', 'array'],
+            'tags.*' => ['string', 'max:255'],
+            'file' => ['required', 'file', 'mimes:docx,pdf', 'max:20480'],
         ];
     }
 }

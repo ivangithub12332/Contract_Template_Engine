@@ -12,7 +12,7 @@ class UpdateTemplateRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return in_array($this->user()?->role, ['admin', 'methodologist'], true);
     }
 
     /**
@@ -23,7 +23,11 @@ class UpdateTemplateRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'name' => ['sometimes', 'required', 'string', 'max:255'],
+            'category' => ['nullable', 'string', 'max:255'],
+            'tags' => ['nullable', 'array'],
+            'tags.*' => ['string', 'max:255'],
+            'status' => ['sometimes', 'required', 'in:draft,published,archived'],
         ];
     }
 }
