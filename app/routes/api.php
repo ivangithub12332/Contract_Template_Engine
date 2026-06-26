@@ -18,6 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/templates', [TemplateController::class, 'store']);
         Route::put('/templates/{template}', [TemplateController::class, 'update']);
         Route::post('/templates/{template}/versions', [TemplateController::class, 'storeVersion']);
+        Route::post('/templates/{template}/variables/extract', [TemplateController::class, 'extractVariables']);
         Route::post('/templates/{template}/publish', [TemplateController::class, 'publish']);
     });
 

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTemplateRequest;
 use App\Http\Requests\UpdateTemplateRequest;
 use App\Models\Template;
+use App\Services\VariableExtractor;
 use Illuminate\Http\Request;
 
 class TemplateController extends Controller
@@ -118,15 +119,60 @@ class TemplateController extends Controller
     }
 
     /**
+     * Recognise {{placeholder}} markup in the current version's file and
+     * register any newly found keys as draft variables (type "text" by default).
+     */
+    public function extractVariables(Template $template, VariableExtractor $extractor)
+    {
+        $version = $template->currentVersion;
+        if (! $version) {
+            abort(422, 'У шаблона нет ни одной загруженной версии.');
+        }
+
+        $errors = $extractor->validate($version->full_path, $template->format);
+        if ($errors !== []) {
+            return response()->json(['errors' => $errors], 422);
+        }
+
+        $keys = $extractor->extractKeys($version->full_path, $template->format);
+        $existingKeys = $template->variables()->pluck('key')->all();
+
+        foreach ($keys as $key) {
+            if (in_array($key, $existingKeys, true)) {
+                continue;
+            }
+
+            $template->variables()->create([
+                'key' => $key,
+                'label' => $key,
+                'type' => 'text',
+                'required' => false,
+            ]);
+        }
+
+        return response()->json($this->formatTemplate($template->fresh('variables')));
+    }
+
+    /**
      * Publish a template, making it available to regular users.
      */
-    public function publish(Template $template)
+    public function publish(Template $template, VariableExtractor $extractor)
     {
+        $version = $template->currentVersion;
+        if (! $version) {
+            abort(422, 'У шаблона нет ни одной загруженной версии.');
+        }
+
+        $errors = $extractor->validate($version->full_path, $template->format);
+        if ($errors !== []) {
+            return response()->json(['errors' => $errors], 422);
+        }
+
         $template->update([
             'status' => 'published',
         ]);
 
-        $template->currentVersion?->update(['published_at' => now()]);
+        $version->update(['published_at' => now()]);
 
         return response()->json($this->formatTemplate($template->fresh('versions')));
     }
