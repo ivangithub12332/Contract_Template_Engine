@@ -12,7 +12,7 @@ class GenerateDocumentRequest extends FormRequest
      */
     public function authorize(): bool
     {
-        return false;
+        return $this->user() !== null;
     }
 
     /**
@@ -23,7 +23,7 @@ class GenerateDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            //
+            'values' => ['required', 'array'],
         ];
     }
 }

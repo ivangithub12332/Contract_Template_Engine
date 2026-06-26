@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\TemplateController;
 use App\Http\Controllers\Api\VariableController;
 use Illuminate\Support\Facades\Route;
@@ -29,4 +30,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::delete('/templates/{template}', [TemplateController::class, 'destroy'])
         ->middleware('role:admin');
+
+    Route::post('/templates/{template}/documents', [DocumentController::class, 'store']);
+    Route::get('/documents', [DocumentController::class, 'index']);
+    Route::get('/documents/{document}', [DocumentController::class, 'show']);
+    Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
 });

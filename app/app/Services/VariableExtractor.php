@@ -50,6 +50,14 @@ class VariableExtractor
     }
 
     /**
+     * Does the template mark {{key}} ... {{/key}} as a block (conditional or repeating)?
+     */
+    public function hasBlock(string $absolutePath, string $key): bool
+    {
+        return str_contains($this->readPlainText($absolutePath), '{{/'.$key.'}}');
+    }
+
+    /**
      * @return string[]
      */
     private function extractKeysFromDocx(string $absolutePath): array
@@ -60,9 +68,11 @@ class VariableExtractor
         $keys = [];
         foreach ($processor->getVariables() as $variable) {
             $key = trim($variable);
-            if ($key !== '' && ! in_array($key, $keys, true)) {
-                $keys[] = $key;
+            // Block-closing markers ({{/key}}) are not standalone variables.
+            if ($key === '' || str_starts_with($key, '/') || in_array($key, $keys, true)) {
+                continue;
             }
+            $keys[] = $key;
         }
 
         return $keys;
