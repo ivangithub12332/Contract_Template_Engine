@@ -7,7 +7,6 @@ use App\Http\Requests\StoreTemplateRequest;
 use App\Http\Requests\UpdateTemplateRequest;
 use App\Models\Template;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class TemplateController extends Controller
 {
@@ -16,7 +15,7 @@ class TemplateController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Template::query()->with('currentVersion');
+        $query = Template::query()->withCount('variables')->with('versions');
 
         if ($request->user()->role === 'user') {
             $query->where('status', 'published');
@@ -30,7 +29,9 @@ class TemplateController extends Controller
             $query->where('status', $request->string('status'));
         }
 
-        return response()->json($query->latest()->paginate(20));
+        $templates = $query->latest()->get()->map(fn (Template $template) => $this->formatTemplate($template));
+
+        return response()->json($templates);
     }
 
     /**
@@ -39,16 +40,15 @@ class TemplateController extends Controller
     public function store(StoreTemplateRequest $request)
     {
         $data = $request->validated();
-        $file = $request->file('file');
-        $path = $file->store('templates', 'public');
+        $path = $request->file('file')->store('templates', 'public');
 
         $template = Template::create([
             'name' => $data['name'],
-            'category' => $data['category'] ?? null,
+            'category' => $data['category'] ?? '',
             'format' => $data['format'],
             'status' => 'draft',
             'file_path' => $path,
-            'tags' => $data['tags'] ?? null,
+            'tags' => $data['tags'] ?? [],
             'created_by' => $request->user()->id,
         ]);
 
@@ -57,7 +57,7 @@ class TemplateController extends Controller
             'file_path' => $path,
         ]);
 
-        return response()->json($template->load('currentVersion'), 201);
+        return response()->json($this->formatTemplate($template->load('versions')), 201);
     }
 
     /**
@@ -65,7 +65,9 @@ class TemplateController extends Controller
      */
     public function show(Template $template)
     {
-        return response()->json($template->load(['versions', 'variables', 'creator']));
+        $template->load(['versions', 'variables', 'creator']);
+
+        return response()->json($this->formatTemplate($template));
     }
 
     /**
@@ -75,7 +77,7 @@ class TemplateController extends Controller
     {
         $template->update($request->validated());
 
-        return response()->json($template->fresh());
+        return response()->json($this->formatTemplate($template->fresh('versions')));
     }
 
     /**
@@ -126,6 +128,45 @@ class TemplateController extends Controller
 
         $template->currentVersion?->update(['published_at' => now()]);
 
-        return response()->json($template->fresh('currentVersion'));
+        return response()->json($this->formatTemplate($template->fresh('versions')));
+    }
+
+    /**
+     * Shape a template into the JSON contract expected by the frontend
+     * (see frontend/src/api/backendAdapters.ts on the frontend branch).
+     */
+    private function formatTemplate(Template $template): array
+    {
+        return [
+            'id' => $template->id,
+            'name' => $template->name,
+            'category' => $template->category ?? '',
+            'format' => $template->format,
+            'status' => $template->status,
+            'tags' => $template->tags ?? [],
+            'created_at' => $template->created_at,
+            'variables_count' => $template->variables_count ?? $template->variables()->count(),
+            'versions' => $template->versions->map(fn ($version) => [
+                'id' => $version->id,
+                'version_number' => $version->version_number,
+                'file_path' => $version->file_path,
+                'published_at' => $version->published_at,
+            ])->values(),
+            'variables' => $template->relationLoaded('variables')
+                ? $template->variables->map(fn ($variable) => [
+                    'id' => $variable->id,
+                    'key' => $variable->key,
+                    'label' => $variable->label,
+                    'type' => $variable->type,
+                    'required' => $variable->required,
+                    'default_value' => $variable->default_value,
+                    'hint' => $variable->hint,
+                    'options' => $variable->options,
+                ])->values()
+                : [],
+            'creator' => $template->relationLoaded('creator') && $template->creator
+                ? ['id' => $template->creator->id, 'name' => $template->creator->name]
+                : null,
+        ];
     }
 }
