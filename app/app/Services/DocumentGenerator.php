@@ -9,6 +9,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use PhpOffice\PhpWord\Settings;
 use PhpOffice\PhpWord\TemplateProcessor;
+use RuntimeException;
 
 class DocumentGenerator
 {
@@ -83,6 +84,39 @@ class DocumentGenerator
         $parts = array_filter([$slug, $number, $date ? Carbon::parse($date)->format('Y-m-d') : null]);
 
         return Str::slug(implode('-', $parts)).'.'.$extension;
+    }
+
+    /**
+     * Convert a generated docx (relative to the "public" disk) to pdf via headless LibreOffice.
+     * Result is cached next to the source file, so repeat downloads are free.
+     *
+     * @return string relative path (to the "public" disk) of the pdf file
+     */
+    public function convertToPdf(string $relativeDocxPath): string
+    {
+        $relativePdfPath = preg_replace('/\.docx$/', '.pdf', $relativeDocxPath);
+        $absolutePdfPath = storage_path('app/public/'.$relativePdfPath);
+
+        if (file_exists($absolutePdfPath)) {
+            return $relativePdfPath;
+        }
+
+        $absoluteDocxPath = storage_path('app/public/'.$relativeDocxPath);
+        $outDir = dirname($absoluteDocxPath);
+
+        $command = sprintf(
+            'soffice --headless --norestore --convert-to pdf --outdir %s %s 2>&1',
+            escapeshellarg($outDir),
+            escapeshellarg($absoluteDocxPath)
+        );
+
+        exec($command, $output, $exitCode);
+
+        if ($exitCode !== 0 || ! file_exists($absolutePdfPath)) {
+            throw new RuntimeException('Не удалось сконвертировать документ в pdf: '.implode("\n", $output));
+        }
+
+        return $relativePdfPath;
     }
 
     private function applyTableBlock(TemplateProcessor $processor, string $key, array $rows): void

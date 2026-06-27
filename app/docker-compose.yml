@@ -1,6 +1,8 @@
 services:
   app:
-    image: himanshuramavat/php-ci:8.4
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: docs-app
     restart: unless-stopped
     working_dir: /var/www/app

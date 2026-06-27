@@ -99,11 +99,32 @@ class DocumentController extends Controller
         return response()->json($this->formatDocument($document));
     }
 
-    public function download(Document $document)
+    /**
+     * Download the generated document. Pass ?format=pdf to convert a docx
+     * document on the fly (ТЗ 4.4: docx templates are downloadable as pdf too).
+     */
+    public function download(Request $request, Document $document, DocumentGenerator $generator)
     {
         $this->authorizeAccess($document);
 
-        return response()->download($document->full_path, $document->download_name);
+        $sourceExtension = pathinfo($document->file_path, PATHINFO_EXTENSION);
+        $format = $request->query('format', $sourceExtension);
+
+        if (! in_array($format, ['docx', 'pdf'], true)) {
+            abort(422, 'Поддерживаются только форматы docx и pdf.');
+        }
+
+        if ($format === $sourceExtension) {
+            return response()->download($document->full_path, "document_{$document->id}.{$sourceExtension}");
+        }
+
+        if ($sourceExtension !== 'docx' || $format !== 'pdf') {
+            abort(422, 'Такая конвертация не поддерживается.');
+        }
+
+        $pdfRelativePath = $generator->convertToPdf($document->file_path);
+
+        return response()->download(storage_path('app/public/'.$pdfRelativePath), "document_{$document->id}.pdf");
     }
 
     private function authorizeAccess(Document $document): void
