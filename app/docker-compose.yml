@@ -8,6 +8,10 @@ services:
     working_dir: /var/www/app
     volumes:
       - .:/var/www/app
+      # vendor/ has thousands of small files; reading it through the Windows
+      # bind-mount on every PHP autoload made every request take 5-10s even
+      # for a no-op endpoint. A named volume lives on the VM's native fs instead.
+      - vendor_data:/var/www/app/vendor
     ports:
       - "8000:8000"
     depends_on:
@@ -42,3 +46,4 @@ services:
 
 volumes:
   postgres_data:
+  vendor_data:
