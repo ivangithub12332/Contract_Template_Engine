@@ -9,28 +9,30 @@ use ZipArchive;
 class VariableExtractor
 {
     /**
-     * Extract unique placeholder keys ({{key}}) from a template file, in order of first appearance.
+     * Extract unique placeholder keys ({{key}} for docx, AcroForm field names for pdf),
+     * in order of first appearance.
      *
      * @return string[]
      */
     public function extractKeys(string $absolutePath, string $format): array
     {
-        if ($format === 'docx') {
-            return $this->extractKeysFromDocx($absolutePath);
-        }
-
-        throw new RuntimeException('Разметка переменных для pdf-шаблонов пока не поддерживается.');
+        return $format === 'docx'
+            ? $this->extractKeysFromDocx($absolutePath)
+            : array_keys($this->inspectPdfFields($absolutePath));
     }
 
     /**
-     * Check the raw markup for structural problems: unmatched braces, empty placeholders.
+     * Check the template for structural problems before it can be published/extracted:
+     * docx -> unmatched braces, empty placeholders; pdf -> presence of at least one form field.
      *
      * @return string[] human-readable validation errors, empty when the markup is valid
      */
     public function validate(string $absolutePath, string $format): array
     {
         if ($format !== 'docx') {
-            return ['Проверка разметки для pdf-шаблонов пока не поддерживается.'];
+            return $this->inspectPdfFields($absolutePath) === []
+                ? ['В pdf-шаблоне не найдено ни одного поля формы (AcroForm).']
+                : [];
         }
 
         $text = $this->readPlainText($absolutePath);
@@ -51,10 +53,74 @@ class VariableExtractor
 
     /**
      * Does the template mark {{key}} ... {{/key}} as a block (conditional or repeating)?
+     * Only meaningful for docx — static pdf forms have no equivalent concept.
      */
     public function hasBlock(string $absolutePath, string $key): bool
     {
         return str_contains($this->readPlainText($absolutePath), '{{/'.$key.'}}');
+    }
+
+    /**
+     * Read a pdf's AcroForm fields via `pdftk dump_data_fields_utf8`.
+     *
+     * @return array<string, array{type: string, onValue: ?string}> keyed by field name,
+     *         in order of first appearance. "onValue" is the non-"Off" state for checkboxes.
+     */
+    public function inspectPdfFields(string $absolutePath): array
+    {
+        $command = sprintf('pdftk %s dump_data_fields_utf8 2>&1', escapeshellarg($absolutePath));
+        exec($command, $output, $exitCode);
+
+        if ($exitCode !== 0) {
+            throw new RuntimeException('Не удалось прочитать поля pdf-шаблона: '.implode("\n", $output));
+        }
+
+        $fields = [];
+        $current = null;
+
+        foreach ($output as $line) {
+            if ($line === '---') {
+                $this->commitPdfField($fields, $current);
+                $current = ['stateOptions' => []];
+
+                continue;
+            }
+
+            if ($current === null || ! str_contains($line, ':')) {
+                continue;
+            }
+
+            [$key, $value] = array_pad(explode(': ', $line, 2), 2, '');
+            if ($key === 'FieldStateOption') {
+                $current['stateOptions'][] = $value;
+            } else {
+                $current[$key] = $value;
+            }
+        }
+        $this->commitPdfField($fields, $current);
+
+        return $fields;
+    }
+
+    private function commitPdfField(array &$fields, ?array $current): void
+    {
+        if ($current === null || ! isset($current['FieldName']) || $current['FieldName'] === '') {
+            return;
+        }
+
+        $onValue = null;
+        foreach ($current['stateOptions'] as $option) {
+            if ($option !== 'Off') {
+                $onValue = $option;
+
+                break;
+            }
+        }
+
+        $fields[$current['FieldName']] = [
+            'type' => $current['FieldType'] ?? 'Text',
+            'onValue' => $onValue,
+        ];
     }
 
     /**

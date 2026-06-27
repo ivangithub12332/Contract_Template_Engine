@@ -18,13 +18,20 @@ class DocumentGenerator
     }
 
     /**
-     * Render a docx template version with the given values and store the result.
+     * Render a template version with the given values and store the result.
      *
      * @param Collection<int, Variable> $variables
      * @param array<string, mixed> $values keyed by variable key
      * @return string storage path (relative to the "public" disk) of the generated file
      */
     public function generate(TemplateVersion $version, Collection $variables, array $values): string
+    {
+        return $version->template->format === 'pdf'
+            ? $this->generatePdf($version, $variables, $values)
+            : $this->generateDocx($version, $variables, $values);
+    }
+
+    private function generateDocx(TemplateVersion $version, Collection $variables, array $values): string
     {
         // Required by ТЗ 4.2 ("экранируются спецсимволы разметки"); off by default in PhpWord.
         Settings::setOutputEscapingEnabled(true);
@@ -54,6 +61,58 @@ class DocumentGenerator
             mkdir(dirname($absolutePath), 0755, true);
         }
         $processor->saveAs($absolutePath);
+
+        return $relativePath;
+    }
+
+    /**
+     * Fill a pdf's AcroForm fields via pdftk (ТЗ 6: "разметка полей формы"), then flatten
+     * so the result is a stable, non-editable document. Table/repeating variables aren't
+     * representable as static form fields, so they're skipped for pdf templates.
+     */
+    private function generatePdf(TemplateVersion $version, Collection $variables, array $values): string
+    {
+        $fields = $this->extractor->inspectPdfFields($version->full_path);
+        $fdfFields = [];
+
+        foreach ($variables as $variable) {
+            if ($variable->type === 'table' || ! isset($fields[$variable->key])) {
+                continue;
+            }
+
+            $value = $values[$variable->key] ?? $variable->default_value;
+            $field = $fields[$variable->key];
+
+            if ($field['type'] === 'Button') {
+                $fdfFields[] = $this->fdfNameField($variable->key, $value ? ($field['onValue'] ?? 'Yes') : 'Off');
+
+                continue;
+            }
+
+            $fdfFields[] = $this->fdfTextField($variable->key, $this->formatScalar($variable, $value));
+        }
+
+        $relativePath = 'documents/'.Str::random(40).'.pdf';
+        $absolutePath = storage_path('app/public/'.$relativePath);
+        if (! is_dir(dirname($absolutePath))) {
+            mkdir(dirname($absolutePath), 0755, true);
+        }
+
+        $fdfPath = tempnam(sys_get_temp_dir(), 'fdf').'.fdf';
+        file_put_contents($fdfPath, $this->buildFdf($fdfFields));
+
+        $command = sprintf(
+            'pdftk %s fill_form %s output %s flatten 2>&1',
+            escapeshellarg($version->full_path),
+            escapeshellarg($fdfPath),
+            escapeshellarg($absolutePath)
+        );
+        exec($command, $output, $exitCode);
+        unlink($fdfPath);
+
+        if ($exitCode !== 0 || ! file_exists($absolutePath)) {
+            throw new RuntimeException('Не удалось заполнить pdf-шаблон: '.implode("\n", $output));
+        }
 
         return $relativePath;
     }
@@ -117,6 +176,37 @@ class DocumentGenerator
         }
 
         return $relativePdfPath;
+    }
+
+    /**
+     * A pdf text-field entry, value hex-encoded as UTF-16BE so Cyrillic survives.
+     */
+    private function fdfTextField(string $name, string $value): string
+    {
+        $utf16 = mb_convert_encoding($value, 'UTF-16BE', 'UTF-8');
+        $hex = 'FEFF'.bin2hex($utf16);
+
+        return '<< /T '.$this->fdfLiteral($name).' /V <'.$hex.'> >>';
+    }
+
+    /**
+     * A pdf checkbox/radio entry — its value is a Name object (e.g. /Yes or /Off), not a string.
+     */
+    private function fdfNameField(string $name, string $stateName): string
+    {
+        return '<< /T '.$this->fdfLiteral($name).' /V /'.$stateName.' >>';
+    }
+
+    private function fdfLiteral(string $value): string
+    {
+        return '('.str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $value).')';
+    }
+
+    private function buildFdf(array $fields): string
+    {
+        $body = implode("\n", $fields);
+
+        return "%FDF-1.2\n1 0 obj<</FDF<</Fields[\n{$body}\n]>>>>\nendobj\ntrailer\n<</Root 1 0 R>>\n%%EOF\n";
     }
 
     private function applyTableBlock(TemplateProcessor $processor, string $key, array $rows): void

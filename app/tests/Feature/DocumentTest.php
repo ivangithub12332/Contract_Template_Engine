@@ -135,4 +135,39 @@ class DocumentTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1);
     }
+
+    public function test_user_can_generate_document_from_a_published_pdf_template(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $file = new UploadedFile(
+            base_path('tests/Fixtures/form_template.pdf'),
+            'form_template.pdf',
+            'application/pdf',
+            null,
+            true
+        );
+        $template = Template::find(
+            $this->actingAs($methodologist, 'sanctum')->postJson('/api/templates', [
+                'name' => 'PDF-анкета',
+                'format' => 'pdf',
+                'file' => $file,
+            ])->json('id')
+        );
+        $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract")->assertOk();
+        $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/publish")->assertOk();
+
+        $user = User::factory()->create(['role' => 'user']);
+        $response = $this->actingAs($user, 'sanctum')->postJson("/api/templates/{$template->id}/documents", [
+            'values' => ['client_name' => 'Acme LLC', 'agree' => true],
+        ]);
+
+        $response->assertCreated();
+        $documentId = $response->json('id');
+
+        $download = $this->actingAs($user, 'sanctum')->get("/api/documents/{$documentId}/download");
+        $download->assertOk();
+        $this->assertStringStartsWith('%PDF', $download->streamedContent());
+    }
 }

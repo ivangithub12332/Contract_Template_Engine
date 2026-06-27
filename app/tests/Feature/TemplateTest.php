@@ -107,11 +107,26 @@ class TemplateTest extends TestCase
         $this->assertFalse($ids->contains($draftTemplate->id));
     }
 
-    private function uploadTemplate(User $methodologist, string $fixture): Template
+    public function test_extracting_variables_registers_acroform_fields_from_a_pdf(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $template = $this->uploadTemplate($methodologist, 'form_template.pdf', 'pdf');
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk()->assertJsonPath('variables_count', 2);
+
+        $variables = collect($response->json('variables'))->keyBy('key');
+        $this->assertSame('text', $variables['client_name']['type']);
+        $this->assertSame('boolean', $variables['agree']['type']);
+    }
+
+    private function uploadTemplate(User $methodologist, string $fixture, string $format = 'docx'): Template
     {
         $response = $this->actingAs($methodologist, 'sanctum')->postJson('/api/templates', [
             'name' => 'Договор '.$fixture,
-            'format' => 'docx',
+            'format' => $format,
             'file' => $this->fixture($fixture),
         ]);
 

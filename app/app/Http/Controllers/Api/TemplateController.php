@@ -119,8 +119,8 @@ class TemplateController extends Controller
     }
 
     /**
-     * Recognise {{placeholder}} markup in the current version's file and
-     * register any newly found keys as draft variables (type "text" by default).
+     * Recognise {{placeholder}} markup (docx) or AcroForm field names (pdf) in the
+     * current version's file and register any newly found keys as draft variables.
      */
     public function extractVariables(Template $template, VariableExtractor $extractor)
     {
@@ -136,16 +136,20 @@ class TemplateController extends Controller
 
         $keys = $extractor->extractKeys($version->full_path, $template->format);
         $existingKeys = $template->variables()->pluck('key')->all();
+        $pdfFields = $template->format === 'pdf' ? $extractor->inspectPdfFields($version->full_path) : [];
 
         foreach ($keys as $key) {
             if (in_array($key, $existingKeys, true)) {
                 continue;
             }
 
+            // A pdf checkbox field is the natural AcroForm equivalent of a boolean variable.
+            $type = ($pdfFields[$key]['type'] ?? null) === 'Button' ? 'boolean' : 'text';
+
             $template->variables()->create([
                 'key' => $key,
                 'label' => $key,
-                'type' => 'text',
+                'type' => $type,
                 'required' => false,
             ]);
         }
