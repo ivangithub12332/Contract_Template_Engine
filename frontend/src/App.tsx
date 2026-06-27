@@ -4,6 +4,7 @@ import {
   downloadDocument,
   generateDocument,
   getCurrentUser,
+  getDocument,
   getDocuments,
   getTemplateVariables,
   getTemplates,
@@ -14,6 +15,7 @@ import {
   register,
   saveTemplateVariables,
   uploadTemplate,
+  uploadTemplateVersion,
 } from './api/backendApi';
 import {
   AuthCredentials,
@@ -43,6 +45,7 @@ export function App() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [prefillValues, setPrefillValues] = useState<Record<string, DocumentFieldValue> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -131,7 +134,15 @@ export function App() {
               <button className={page === 'variables' ? 'active' : ''} onClick={() => setPage('variables')}>Переменные</button>
             </>
           )}
-          <button className={page === 'create' ? 'active' : ''} onClick={() => setPage('create')}>Создать документ</button>
+          <button
+            className={page === 'create' ? 'active' : ''}
+            onClick={() => {
+              setPrefillValues(null);
+              setPage('create');
+            }}
+          >
+            Создать документ
+          </button>
           <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>История</button>
         </nav>
       </aside>
@@ -143,10 +154,19 @@ export function App() {
             <h1>{getPageTitle(page)}</h1>
           </div>
           <div className="topbar-actions">
-            <select value={selectedTemplateId} onChange={(event) => setSelectedTemplateId(event.target.value)}>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>{template.name}</option>
-              ))}
+            <select
+              value={selectedTemplateId}
+              disabled={templates.length === 0}
+              onChange={(event) => {
+                setSelectedTemplateId(event.target.value);
+                setPrefillValues(null);
+              }}
+            >
+              {templates.length === 0
+                ? <option value="">Нет шаблонов</option>
+                : templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
             </select>
             <span className="user-badge">{user.name} / {user.role}</span>
             <button className="secondary" onClick={reload}>Обновить</button>
@@ -166,10 +186,12 @@ export function App() {
                 templates={templates}
                 onConfigure={(id) => {
                   setSelectedTemplateId(id);
+                  setPrefillValues(null);
                   setPage('variables');
                 }}
                 onCreate={(id) => {
                   setSelectedTemplateId(id);
+                  setPrefillValues(null);
                   setPage('create');
                 }}
                 canManageTemplates={canManageTemplates}
@@ -185,29 +207,45 @@ export function App() {
                 }}
               />
             )}
-            {page === 'variables' && selectedTemplate && (
-              <VariablesPage
-                template={selectedTemplate}
-                onSaved={async (message = 'Настройки переменных сохранены') => {
-                  showNotice(message);
-                  await reload();
-                }}
-              />
+            {page === 'variables' && (
+              selectedTemplate ? (
+                <VariablesPage
+                  template={selectedTemplate}
+                  onSaved={async (message = 'Настройки переменных сохранены') => {
+                    showNotice(message);
+                    await reload();
+                  }}
+                />
+              ) : (
+                <section className="content-stack">
+                  <EmptyState text="Сначала загрузите шаблон, чтобы настроить переменные" />
+                </section>
+              )
             )}
-            {page === 'create' && selectedTemplate && (
-              <CreateDocumentPage
-                template={selectedTemplate}
-                onGenerated={async () => {
-                  await reload();
-                  showNotice('Документ добавлен в историю');
-                }}
-              />
+            {page === 'create' && (
+              selectedTemplate ? (
+                <CreateDocumentPage
+                  template={selectedTemplate}
+                  initialValues={prefillValues}
+                  onGenerated={async () => {
+                    setPrefillValues(null);
+                    await reload();
+                    showNotice('Документ добавлен в историю');
+                  }}
+                />
+              ) : (
+                <section className="content-stack">
+                  <EmptyState text="Нет доступных шаблонов для создания документа" />
+                </section>
+              )
             )}
             {page === 'history' && (
               <HistoryPage
                 documents={documents}
-                onRepeat={(templateId) => {
-                  setSelectedTemplateId(templateId);
+                onRepeat={async (document) => {
+                  const detailedDocument = await getDocument(document.id);
+                  setSelectedTemplateId(detailedDocument.templateId || document.templateId);
+                  setPrefillValues(detailedDocument.values);
                   setPage('create');
                 }}
               />
@@ -393,7 +431,7 @@ function TemplatesPage({
   );
 }
 
-function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void }) {
+function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void | Promise<void> }) {
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Договоры');
   const [tags, setTags] = useState('');
@@ -410,7 +448,7 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void }
     try {
       const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
       const template = await uploadTemplate({ name, category, tags: parseTags(tags), format, file });
-      onUploaded(template);
+      await onUploaded(template);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -458,6 +496,8 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [versionFile, setVersionFile] = useState<File | null>(null);
+  const [isUploadingVersion, setIsUploadingVersion] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -501,6 +541,23 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
     }
   };
 
+  const uploadVersion = async () => {
+    if (!versionFile) return;
+    setIsUploadingVersion(true);
+    setError('');
+    try {
+      await uploadTemplateVersion(template.id, versionFile);
+      const items = await getTemplateVariables(template.id);
+      setVariables(items);
+      setVersionFile(null);
+      await onSaved('Новая версия шаблона загружена, переменные обновлены');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsUploadingVersion(false);
+    }
+  };
+
   if (isLoading) return <LoadingState />;
 
   return (
@@ -514,6 +571,20 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
           <span className="muted">Найдено переменных</span>
           <strong>{variables.length}</strong>
         </div>
+      </div>
+      <div className="version-upload">
+        <label className="file-input">
+          Новая версия шаблона
+          <input
+            type="file"
+            accept=".docx,.pdf"
+            onChange={(event) => setVersionFile(event.target.files?.[0] || null)}
+          />
+          <span>{versionFile?.name || 'Выберите DOCX или PDF'}</span>
+        </label>
+        <button className="secondary" onClick={uploadVersion} disabled={!versionFile || isUploadingVersion}>
+          {isUploadingVersion ? 'Загрузка...' : 'Загрузить версию'}
+        </button>
       </div>
       {error && <div className="error-banner">{error}</div>}
 
@@ -567,7 +638,15 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
   );
 }
 
-function CreateDocumentPage({ template, onGenerated }: { template: Template; onGenerated: () => void }) {
+function CreateDocumentPage({
+  template,
+  initialValues,
+  onGenerated,
+}: {
+  template: Template;
+  initialValues: Record<string, DocumentFieldValue> | null;
+  onGenerated: () => void | Promise<void>;
+}) {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [values, setValues] = useState<Record<string, DocumentFieldValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -575,6 +654,30 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
   const [format, setFormat] = useState<'docx' | 'pdf'>(template.format);
   const [preview, setPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setApiError('');
+    setFormat(template.format);
+    setPreview(false);
+
+    if (template.status !== 'published') {
+      setVariables([]);
+      setValues({});
+      setErrors({});
+      return;
+    }
+
+    getTemplateVariables(template.id)
+      .then((items) => {
+        setVariables(items);
+        const defaultValues = Object.fromEntries(
+          items.map((item) => [item.name, getInitialFieldValue(item)]),
+        );
+        setValues({ ...defaultValues, ...(initialValues || {}) });
+        setErrors({});
+      })
+      .catch((requestError) => setApiError(getErrorMessage(requestError)));
+  }, [template.id, template.format, template.status, initialValues]);
 
   if (template.status !== 'published') {
     return (
@@ -593,23 +696,6 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
       </section>
     );
   }
-
-  useEffect(() => {
-    setApiError('');
-    getTemplateVariables(template.id)
-      .then((items) => {
-        setVariables(items);
-        setValues(
-          Object.fromEntries(
-            items.map((item) => [item.name, getInitialFieldValue(item)]),
-          ),
-        );
-        setErrors({});
-        setFormat(template.format);
-        setPreview(false);
-      })
-      .catch((requestError) => setApiError(getErrorMessage(requestError)));
-  }, [template.id, template.format]);
 
   const validationErrors = () => {
     const nextErrors: Record<string, string> = {};
@@ -638,8 +724,9 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
     setIsSubmitting(true);
     setApiError('');
     try {
-      await generateDocument(template, values);
-      onGenerated();
+      const generatedDocument = await generateDocument(template, values);
+      await downloadDocument(generatedDocument, format);
+      await onGenerated();
     } catch (requestError) {
       setApiError(getErrorMessage(requestError));
     } finally {
@@ -840,10 +927,11 @@ function HistoryPage({
   onRepeat,
 }: {
   documents: GeneratedDocument[];
-  onRepeat: (templateId: string) => void;
+  onRepeat: (document: GeneratedDocument) => void | Promise<void>;
 }) {
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const [repeatingId, setRepeatingId] = useState('');
   const filteredDocuments = useMemo(
     () => documents.filter((document) => document.templateName.toLowerCase().includes(query.toLowerCase())),
     [documents, query],
@@ -883,7 +971,23 @@ function HistoryPage({
               </div>
             </dl>
             <div className="actions">
-              <button className="secondary" onClick={() => onRepeat(document.templateId)}>Повторить</button>
+              <button
+                className="secondary"
+                disabled={repeatingId === document.id}
+                onClick={async () => {
+                  setRepeatingId(document.id);
+                  setError('');
+                  try {
+                    await onRepeat(document);
+                  } catch (requestError) {
+                    setError(getErrorMessage(requestError));
+                  } finally {
+                    setRepeatingId('');
+                  }
+                }}
+              >
+                {repeatingId === document.id ? 'Открытие...' : 'Повторить'}
+              </button>
               <button onClick={() => download(document)}>Скачать</button>
               {document.format === 'docx' && (
                 <button className="secondary" onClick={() => download(document, 'pdf')}>PDF</button>

@@ -137,6 +137,20 @@ export async function uploadTemplate(input: UploadTemplateInput): Promise<Templa
   }
 }
 
+export async function uploadTemplateVersion(templateId: string, file: File): Promise<Template> {
+  const form = new FormData();
+  form.append('file', file);
+
+  await apiRequest(`/templates/${templateId}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+
+  return adaptTemplate(await apiRequest(`/templates/${templateId}/variables/extract`, {
+    method: 'POST',
+  }));
+}
+
 export async function getTemplateVariables(templateId: string): Promise<TemplateVariable[]> {
   const template = await apiRequest<{ variables?: unknown[] }>(`/templates/${templateId}`);
   return (template.variables || []).map((variable) => adaptVariable(templateId, variable as never));
@@ -172,6 +186,10 @@ export async function publishTemplate(templateId: string): Promise<Template> {
 export async function getDocuments(): Promise<GeneratedDocument[]> {
   const response = await apiRequest<unknown[] | { data: unknown[] }>('/documents');
   return normalizeArrayResponse(response).map((item) => adaptDocument(item as never));
+}
+
+export async function getDocument(documentId: string): Promise<GeneratedDocument> {
+  return adaptDocument(await apiRequest(`/documents/${documentId}`));
 }
 
 export async function generateDocument(

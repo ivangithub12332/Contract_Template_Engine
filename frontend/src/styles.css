@@ -283,6 +283,17 @@ td span {
   align-items: center;
 }
 
+.version-upload {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) max-content;
+  gap: 12px;
+  align-items: end;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 14px;
+}
+
 .summary-band strong {
   display: block;
   margin-top: 4px;
@@ -615,6 +626,7 @@ dd {
 
   .toolbar,
   .summary-band,
+  .version-upload,
   .form-grid,
   .form-grid.single {
     grid-template-columns: 1fr;
