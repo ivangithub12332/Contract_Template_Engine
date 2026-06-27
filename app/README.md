@@ -12,3 +12,8 @@ docker compose up
 запуск идемпотентен — шаги пропускаются, если уже выполнены.
 
 API доступен по адресу `http://localhost:8000/api`.
+
+## Документация API
+
+OpenAPI-спецификация лежит в [`openapi.yaml`](openapi.yaml). Интерактивная
+документация (Swagger UI) — на [http://localhost:8000/api-docs](http://localhost:8000/api-docs).
