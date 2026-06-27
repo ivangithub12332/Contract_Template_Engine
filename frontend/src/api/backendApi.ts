@@ -7,8 +7,9 @@ import {
   TemplateVariable,
   UploadTemplateInput,
   User,
+  UserRole,
 } from '../types';
-import { adaptDocument, adaptTemplate, adaptTemplateListItem, adaptVariable } from './backendAdapters';
+import { adaptDocument, adaptTemplate, adaptTemplateListItem, adaptUser, adaptVariable } from './backendAdapters';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 const TOKEN_KEY = 'contract_template_api_token';
@@ -86,7 +87,7 @@ export async function login(credentials: AuthCredentials): Promise<User> {
     body: JSON.stringify(credentials),
   });
   window.localStorage.setItem(TOKEN_KEY, response.token);
-  return response.user;
+  return adaptUser(response.user as never);
 }
 
 export async function register(input: RegisterInput): Promise<User> {
@@ -95,7 +96,7 @@ export async function register(input: RegisterInput): Promise<User> {
     body: JSON.stringify(input),
   });
   window.localStorage.setItem(TOKEN_KEY, response.token);
-  return response.user;
+  return adaptUser(response.user as never);
 }
 
 export async function logout(): Promise<void> {
@@ -107,7 +108,19 @@ export async function logout(): Promise<void> {
 }
 
 export async function getCurrentUser(): Promise<User> {
-  return apiRequest<User>('/me');
+  return adaptUser(await apiRequest('/me') as never);
+}
+
+export async function getUsers(): Promise<User[]> {
+  const response = await apiRequest<unknown[] | { data: unknown[] }>('/users');
+  return normalizeArrayResponse(response).map((item) => adaptUser(item as never));
+}
+
+export async function updateUserRole(userId: number, role: UserRole): Promise<User> {
+  return adaptUser(await apiRequest(`/users/${userId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ role }),
+  }) as never);
 }
 
 export async function getTemplates(): Promise<Template[]> {
@@ -181,6 +194,12 @@ export async function publishTemplate(templateId: string): Promise<Template> {
   return adaptTemplate(await apiRequest(`/templates/${templateId}/publish`, {
     method: 'POST',
   }));
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  await apiRequest(`/templates/${templateId}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function getDocuments(): Promise<GeneratedDocument[]> {

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   ApiError,
+  deleteTemplate,
   downloadDocument,
   generateDocument,
   getCurrentUser,
@@ -8,12 +9,14 @@ import {
   getDocuments,
   getTemplateVariables,
   getTemplates,
+  getUsers,
   hasAuthToken,
   login,
   logout,
   publishTemplate,
   register,
   saveTemplateVariables,
+  updateUserRole,
   uploadTemplate,
   uploadTemplateVersion,
 } from './api/backendApi';
@@ -26,11 +29,12 @@ import {
   Template,
   TemplateVariable,
   User,
+  UserRole,
   VariableType,
 } from './types';
-import { formatDate, formatDateTime, formatLabels, parseTags, statusLabels, variableTypeLabels } from './utils';
+import { formatDate, formatDateTime, formatLabels, parseTags, roleLabels, statusLabels, variableTypeLabels } from './utils';
 
-type Page = 'templates' | 'upload' | 'variables' | 'create' | 'history';
+type Page = 'templates' | 'upload' | 'variables' | 'create' | 'history' | 'users';
 
 const emptyFilters = {
   search: '',
@@ -52,6 +56,7 @@ export function App() {
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || templates[0];
   const canManageTemplates = user?.role === 'admin' || user?.role === 'methodologist';
+  const canManageUsers = user?.role === 'admin';
 
   const reload = async () => {
     setIsLoading(true);
@@ -60,7 +65,9 @@ export function App() {
       const [nextTemplates, nextDocuments] = await Promise.all([getTemplates(), getDocuments()]);
       setTemplates(nextTemplates);
       setDocuments(nextDocuments);
-      setSelectedTemplateId((current) => current || nextTemplates[0]?.id || '');
+      setSelectedTemplateId((current) => (
+        nextTemplates.some((template) => template.id === current) ? current : nextTemplates[0]?.id || ''
+      ));
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -144,6 +151,9 @@ export function App() {
             Создать документ
           </button>
           <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>История</button>
+          {canManageUsers && (
+            <button className={page === 'users' ? 'active' : ''} onClick={() => setPage('users')}>Пользователи</button>
+          )}
         </nav>
       </aside>
 
@@ -194,7 +204,14 @@ export function App() {
                   setPrefillValues(null);
                   setPage('create');
                 }}
+                onDelete={async (id) => {
+                  await deleteTemplate(id);
+                  setPrefillValues(null);
+                  await reload();
+                  showNotice('Шаблон удалён');
+                }}
                 canManageTemplates={canManageTemplates}
+                canDeleteTemplates={canManageUsers}
               />
             )}
             {page === 'upload' && (
@@ -250,6 +267,9 @@ export function App() {
                 }}
               />
             )}
+            {page === 'users' && canManageUsers && (
+              <UsersPage currentUser={user} onCurrentUserUpdated={setUser} />
+            )}
           </>
         )}
       </main>
@@ -264,6 +284,7 @@ function getPageTitle(page: Page) {
     variables: 'Настройка переменных',
     create: 'Создание документа',
     history: 'История документов',
+    users: 'Пользователи и роли',
   };
   return titles[page];
 }
@@ -354,14 +375,20 @@ function TemplatesPage({
   templates,
   onConfigure,
   onCreate,
+  onDelete,
   canManageTemplates,
+  canDeleteTemplates,
 }: {
   templates: Template[];
   onConfigure: (id: string) => void;
   onCreate: (id: string) => void;
+  onDelete: (id: string) => Promise<void>;
   canManageTemplates: boolean;
+  canDeleteTemplates: boolean;
 }) {
   const [filters, setFilters] = useState(emptyFilters);
+  const [deletingId, setDeletingId] = useState('');
+  const [error, setError] = useState('');
   const categories = Array.from(new Set(templates.map((template) => template.category)));
 
   const filteredTemplates = templates.filter((template) => {
@@ -388,6 +415,7 @@ function TemplatesPage({
           {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
+      {error && <div className="error-banner">{error}</div>}
 
       <div className="table-wrap">
         <table>
@@ -419,6 +447,30 @@ function TemplatesPage({
                     <button className="secondary" onClick={() => onConfigure(template.id)}>Настроить</button>
                   )}
                   <button disabled={template.status !== 'published'} onClick={() => onCreate(template.id)}>Создать</button>
+                  {canDeleteTemplates && (
+                    <button
+                      className="danger"
+                      disabled={deletingId === template.id}
+                      onClick={async () => {
+                        const confirmed = window.confirm(
+                          `Удалить шаблон "${template.name}"? Связанные версии и документы тоже будут удалены.`,
+                        );
+                        if (!confirmed) return;
+
+                        setDeletingId(template.id);
+                        setError('');
+                        try {
+                          await onDelete(template.id);
+                        } catch (requestError) {
+                          setError(getErrorMessage(requestError));
+                        } finally {
+                          setDeletingId('');
+                        }
+                      }}
+                    >
+                      {deletingId === template.id ? 'Удаление...' : 'Удалить'}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -997,6 +1049,124 @@ function HistoryPage({
         ))}
       </div>
       {filteredDocuments.length === 0 && <EmptyState text="Документы пока не созданы" />}
+    </section>
+  );
+}
+
+function UsersPage({
+  currentUser,
+  onCurrentUserUpdated,
+}: {
+  currentUser: User;
+  onCurrentUserUpdated: (user: User) => void;
+}) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
+  const [isLoading, setIsLoading] = useState(true);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const loadUsers = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      setUsers(await getUsers());
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const filteredUsers = users.filter((user) => {
+    const matchesQuery = [user.name, user.email].some((value) => value.toLowerCase().includes(query.toLowerCase()));
+    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+    return matchesQuery && matchesRole;
+  });
+
+  const changeRole = async (targetUser: User, role: UserRole) => {
+    setSavingId(targetUser.id);
+    setError('');
+    setNotice('');
+    try {
+      const updatedUser = await updateUserRole(targetUser.id, role);
+      setUsers((current) => current.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
+      if (updatedUser.id === currentUser.id) {
+        onCurrentUserUpdated(updatedUser);
+      }
+      setNotice('Роль пользователя обновлена');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  if (isLoading) return <LoadingState />;
+
+  return (
+    <section className="content-stack">
+      <div className="toolbar">
+        <input
+          placeholder="Поиск по имени или email"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as UserRole | 'all')}>
+          <option value="all">Все роли</option>
+          {Object.entries(roleLabels).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
+        <button className="secondary" onClick={loadUsers}>Обновить</button>
+      </div>
+
+      {notice && <div className="notice">{notice}</div>}
+      {error && <div className="error-banner">{error}</div>}
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Имя</th>
+              <th>Email</th>
+              <th>Роль</th>
+              <th>Создан</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredUsers.map((user) => (
+              <tr key={user.id}>
+                <td>
+                  <strong>{user.name}</strong>
+                  {user.id === currentUser.id && <span className="muted">текущая учётная запись</span>}
+                </td>
+                <td>{user.email}</td>
+                <td>
+                  <select
+                    value={user.role}
+                    disabled={savingId === user.id || user.id === currentUser.id}
+                    onChange={(event) => changeRole(user, event.target.value as UserRole)}
+                  >
+                    {Object.entries(roleLabels).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </td>
+                <td>{user.createdAt ? formatDate(user.createdAt) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {filteredUsers.length === 0 && <EmptyState text="Пользователи по таким фильтрам не найдены" />}
     </section>
   );
 }

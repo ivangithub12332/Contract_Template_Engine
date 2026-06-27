@@ -6,6 +6,8 @@ import {
   TemplateFormat,
   TemplateStatus,
   TemplateVariable,
+  User,
+  UserRole,
   VariableType,
 } from '../types';
 
@@ -62,6 +64,14 @@ interface BackendDocument extends BackendDocumentListItem {
   }>;
 }
 
+interface BackendUser {
+  id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  created_at?: string;
+}
+
 export function adaptTemplateListItem(item: BackendTemplateListItem): Template {
   return {
     id: String(item.id),
@@ -115,5 +125,15 @@ export function adaptDocument(item: BackendDocument): GeneratedDocument {
     format: item.file_path.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx',
     fileName: pathParts[pathParts.length - 1] || `document-${item.id}`,
     values,
+  };
+}
+
+export function adaptUser(item: BackendUser): User {
+  return {
+    id: item.id,
+    name: item.name,
+    email: item.email,
+    role: item.role,
+    createdAt: item.created_at,
   };
 }

@@ -61,6 +61,16 @@ button.secondary:hover:not(:disabled) {
   box-shadow: none;
 }
 
+button.danger {
+  background: #fee4e2;
+  color: #b42318;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #fecdca;
+  box-shadow: none;
+}
+
 input,
 select,
 textarea {

@@ -1,4 +1,4 @@
-import { TemplateFormat, TemplateStatus, VariableType } from './types';
+import { TemplateFormat, TemplateStatus, UserRole, VariableType } from './types';
 
 export const statusLabels: Record<TemplateStatus, string> = {
   draft: 'Черновик',
@@ -20,6 +20,12 @@ export const variableTypeLabels: Record<VariableType, string> = {
   select: 'Выбор из списка',
   boolean: 'Логический признак',
   table: 'Повторяющийся блок / таблица',
+};
+
+export const roleLabels: Record<UserRole, string> = {
+  admin: 'Администратор',
+  methodologist: 'Шаблонизатор',
+  user: 'Пользователь',
 };
 
 export function formatDate(value: string): string {

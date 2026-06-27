@@ -66,6 +66,7 @@ VITE_API_BASE_URL=http://localhost:8000/api
 Фронт использует Laravel Sanctum token.
 
 Новый пользователь после регистрации получает роль `user`. Для загрузки и настройки шаблонов нужна роль `methodologist` или `admin`.
+Страница `Пользователи` доступна только `admin` и позволяет менять роли пользователей через интерфейс.
 
 Назначить роль локально можно так:
 
@@ -80,6 +81,7 @@ docker exec -w /var/www/app docs-app php artisan tinker --execute="App\Models\Us
 - отображение роли пользователя;
 - каталог шаблонов;
 - фильтры шаблонов;
+- удаление шаблонов для `admin`;
 - загрузка `docx/pdf` шаблона;
 - распознавание переменных после загрузки;
 - загрузка новой версии шаблона;
@@ -93,6 +95,7 @@ docker exec -w /var/www/app docs-app php artisan tinker --execute="App\Models\Us
 - скачивание `pdf` для `docx` документа;
 - история документов;
 - повторное создание документа с подстановкой старых значений;
+- просмотр пользователей и смена ролей для `admin`;
 - обработка загрузки, пустых состояний и API-ошибок.
 
 ## Основной сценарий проверки
@@ -115,6 +118,8 @@ docker exec -w /var/www/app docs-app php artisan tinker --execute="App\Models\Us
 16. Открыть `История`.
 17. Нажать `Повторить` у созданного документа.
 18. Проверить, что форма открылась с прежними значениями.
+19. Если пользователь `admin`, открыть `Пользователи` и проверить смену роли другого пользователя.
+20. Если пользователь `admin`, в `Шаблоны` проверить удаление тестового шаблона через кнопку `Удалить`.
 
 ## API
 
@@ -144,7 +149,7 @@ Authorization: Bearer <token>
 - `POST /api/templates`;
 - `GET /api/templates/{id}`;
 - `PUT /api/templates/{id}`;
-- `DELETE /api/templates/{id}`;
+- `DELETE /api/templates/{id}` (`admin`);
 - `POST /api/templates/{id}/versions`;
 - `POST /api/templates/{id}/variables/extract`;
 - `POST /api/templates/{id}/publish`.
@@ -162,6 +167,12 @@ Authorization: Bearer <token>
 - `GET /api/documents/{id}`;
 - `GET /api/documents/{id}/download`;
 - `GET /api/documents/{id}/download?format=pdf`.
+
+Пользователи:
+
+- `GET /api/users` (`admin`);
+- `PUT /api/users/{id}` (`admin`);
+- `DELETE /api/users/{id}` (`admin`, во фронте не используется).
 
 ## Формат переменных
 

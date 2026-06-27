@@ -1,5 +1,6 @@
 export type TemplateStatus = 'draft' | 'published' | 'archived';
 export type TemplateFormat = 'docx' | 'pdf';
+export type UserRole = 'admin' | 'methodologist' | 'user';
 
 export type VariableType =
   | 'text'
@@ -65,7 +66,8 @@ export interface User {
   id: number;
   name: string;
   email: string;
-  role: 'admin' | 'methodologist' | 'user';
+  role: UserRole;
+  createdAt?: string;
 }
 
 export interface AuthCredentials {
