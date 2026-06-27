@@ -1,0 +1,634 @@
+openapi: 3.0.3
+info:
+  title: Шаблонизатор договоров — API
+  description: >
+    REST API для загрузки шаблонов договоров (docx/pdf), разметки переменных,
+    сборки документов по заполненной форме и истории созданных документов.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000/api
+    description: Локальная разработка (docker compose up)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+    description: Регистрация, вход, текущий пользователь
+  - name: Templates
+    description: Загрузка, версии, публикация шаблонов
+  - name: Variables
+    description: Переменные шаблона (поля формы)
+  - name: Documents
+    description: Генерация документов и история
+  - name: Users
+    description: Управление пользователями (только администратор)
+
+paths:
+  /register:
+    post:
+      tags: [Auth]
+      summary: Регистрация нового пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, example: "Иван Иванов" }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: Пользователь создан, выдан токен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /login:
+    post:
+      tags: [Auth]
+      summary: Вход по email и паролю
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Успешный вход, выдан токен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  token: { type: string }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /logout:
+    post:
+      tags: [Auth]
+      summary: Отозвать текущий токен
+      responses:
+        '204': { description: Токен отозван }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Данные текущего пользователя
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+
+  /templates:
+    get:
+      tags: [Templates]
+      summary: Список шаблонов
+      description: >
+        Пользователь с ролью "user" видит только опубликованные шаблоны.
+        Методолог/администратор — все, с возможностью фильтра по статусу.
+      parameters:
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string, enum: [draft, published, archived] }
+          description: Игнорируется для роли "user"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Template' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+    post:
+      tags: [Templates]
+      summary: Загрузить новый шаблон (роль admin/methodologist)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [name, format, file]
+              properties:
+                name: { type: string }
+                category: { type: string }
+                format: { type: string, enum: [docx, pdf] }
+                tags:
+                  type: array
+                  items: { type: string }
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Шаблон создан (статус draft), создана версия 1
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /templates/{template}:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    get:
+      tags: [Templates]
+      summary: Карточка шаблона с версиями и переменными
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Templates]
+      summary: Изменить метаданные шаблона (роль admin/methodologist)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                category: { type: string }
+                tags: { type: array, items: { type: string } }
+                status: { type: string, enum: [draft, published, archived] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Templates]
+      summary: Удалить шаблон (только admin)
+      responses:
+        '204': { description: Удалён }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /templates/{template}/versions:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [Templates]
+      summary: Загрузить новую версию шаблона (роль admin/methodologist)
+      description: Старая версия не затирается — старые документы остаются воспроизводимыми.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Версия создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TemplateVersion' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /templates/{template}/variables/extract:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [Variables]
+      summary: Распознать переменные в текущей версии (роль admin/methodologist)
+      description: >
+        docx — плейсхолдеры {{key}}; pdf — поля AcroForm (чекбоксы получают
+        тип "boolean", остальные поля — "text"). Уже описанные переменные
+        не дублируются. Отклоняется при непарной/пустой разметке (docx)
+        или отсутствии полей формы (pdf).
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Шаблон не прошёл проверку разметки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors: { type: array, items: { type: string } }
+
+  /templates/{template}/publish:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [Templates]
+      summary: Опубликовать шаблон (роль admin/methodologist)
+      description: Отклоняется, если разметка шаблона некорректна — некорректный шаблон не публикуется.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Template' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Разметка некорректна или нет загруженной версии
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errors: { type: array, items: { type: string } }
+
+  /templates/{template}/variables:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [Variables]
+      summary: Добавить переменную вручную (роль admin/methodologist)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VariableInput' }
+      responses:
+        '201':
+          description: Создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Variable' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /variables/{variable}:
+    parameters:
+      - in: path
+        name: variable
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Variables]
+      summary: Изменить переменную (роль admin/methodologist)
+      description: Ключ переменной неизменяем — он привязан к плейсхолдеру/полю в файле шаблона.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VariableInput' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Variable' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      tags: [Variables]
+      summary: Удалить переменную (роль admin/methodologist)
+      responses:
+        '204': { description: Удалена }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /templates/{template}/documents:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [Documents]
+      summary: Сгенерировать документ по шаблону и заполненным значениям
+      description: >
+        Шаблон должен быть опубликован. Значения проверяются по типу переменной
+        и обязательности. Не дольше 5 секунд на сборку.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values:
+                  type: object
+                  description: Значения, заданные по ключу переменной
+                  additionalProperties: true
+                  example: { client_name: "ООО Ромашка", signed_date: "2026-06-27", agree: true }
+      responses:
+        '201':
+          description: Документ создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '422':
+          description: Шаблон не опубликован, нет версии, или значения не прошли проверку
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationErrorBody' }
+
+  /documents:
+    get:
+      tags: [Documents]
+      summary: История созданных документов
+      description: >
+        Роль "user" видит только свои документы. Методолог/администратор —
+        все, с фильтрами.
+      parameters:
+        - in: query
+          name: template_id
+          schema: { type: integer }
+        - in: query
+          name: author_id
+          schema: { type: integer }
+          description: Игнорируется для роли "user"
+        - in: query
+          name: date_from
+          schema: { type: string, format: date }
+        - in: query
+          name: date_to
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DocumentListItem' }
+
+  /documents/{document}:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      tags: [Documents]
+      summary: Документ со значениями (для просмотра и повторного создания)
+      description: Доступен автору документа; методологу/администратору — любой.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Document' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /documents/{document}/download:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      tags: [Documents]
+      summary: Скачать готовый документ
+      parameters:
+        - in: query
+          name: format
+          schema: { type: string, enum: [docx, pdf] }
+          description: >
+            По умолчанию — формат, в котором документ был сгенерирован.
+            docx-документ можно дополнительно скачать как pdf (конвертация
+            на лету через LibreOffice, результат кэшируется).
+      responses:
+        '200':
+          description: Файл документа
+          content:
+            application/octet-stream: {}
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Неподдерживаемый формат или направление конвертации
+
+  /users:
+    get:
+      tags: [Users]
+      summary: Список пользователей (только admin)
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [admin, methodologist, user] }
+        - in: query
+          name: search
+          schema: { type: string }
+          description: Поиск по имени или email
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /users/{user}:
+    parameters:
+      - in: path
+        name: user
+        required: true
+        schema: { type: integer }
+    put:
+      tags: [Users]
+      summary: Изменить роль пользователя (только admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [admin, methodologist, user] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Users]
+      summary: Удалить пользователя (только admin)
+      description: Администратор не может удалить собственную учётную запись.
+      responses:
+        '204': { description: Удалён }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { description: Попытка удалить самого себя }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Токен Laravel Sanctum, выданный /register или /login
+
+  parameters:
+    TemplateId:
+      in: path
+      name: template
+      required: true
+      schema: { type: integer }
+    DocumentId:
+      in: path
+      name: document
+      required: true
+      schema: { type: integer }
+
+  responses:
+    Unauthenticated:
+      description: Нет токена или токен недействителен
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string, example: "Unauthenticated." }
+    Forbidden:
+      description: Роль не позволяет выполнить действие
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string }
+    TooManyRequests:
+      description: Превышен лимит запросов (10/мин)
+    ValidationError:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorBody' }
+
+  schemas:
+    ValidationErrorBody:
+      type: object
+      properties:
+        message: { type: string }
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [admin, methodologist, user] }
+        created_at: { type: string, format: date-time }
+
+    Variable:
+      type: object
+      properties:
+        id: { type: integer }
+        key: { type: string, description: "Имя плейсхолдера/поля формы, неизменяемо" }
+        label: { type: string }
+        type:
+          type: string
+          enum: [text, textarea, number, currency, date, select, boolean, table]
+        required: { type: boolean }
+        default_value: { type: string, nullable: true }
+        hint: { type: string, nullable: true }
+        options:
+          nullable: true
+          description: Список значений (select) или {columns:[...]} (table)
+
+    VariableInput:
+      type: object
+      required: [key, label, type]
+      properties:
+        key: { type: string, pattern: '^[a-zA-Z0-9_]+$' }
+        label: { type: string }
+        type:
+          type: string
+          enum: [text, textarea, number, currency, date, select, boolean, table]
+        required: { type: boolean, default: false }
+        default_value: { type: string, nullable: true }
+        hint: { type: string, nullable: true }
+        options: { nullable: true }
+
+    TemplateVersion:
+      type: object
+      properties:
+        id: { type: integer }
+        version_number: { type: integer }
+        file_path: { type: string }
+        published_at: { type: string, format: date-time, nullable: true }
+
+    Template:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: string }
+        format: { type: string, enum: [docx, pdf] }
+        status: { type: string, enum: [draft, published, archived] }
+        tags: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+        variables_count: { type: integer }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/TemplateVersion' }
+        variables:
+          type: array
+          items: { $ref: '#/components/schemas/Variable' }
+        creator:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            name: { type: string }
+
+    DocumentListItem:
+      type: object
+      properties:
+        id: { type: integer }
+        template_id: { type: integer }
+        template_name: { type: string }
+        author_name: { type: string }
+        file_path: { type: string }
+        created_at: { type: string, format: date-time }
+
+    Document:
+      allOf:
+        - $ref: '#/components/schemas/DocumentListItem'
+        - type: object
+          properties:
+            values:
+              type: array
+              items:
+                type: object
+                properties:
+                  variable_key: { type: string }
+                  value: {}
