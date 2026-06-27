@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DocumentController;
 use App\Http\Controllers\Api\TemplateController;
+use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\VariableController;
 use Illuminate\Support\Facades\Route;
 
@@ -35,4 +36,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/documents', [DocumentController::class, 'index']);
     Route::get('/documents/{document}', [DocumentController::class, 'show']);
     Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
+
+    Route::middleware('role:admin')->group(function () {
+        Route::get('/users', [UserController::class, 'index']);
+        Route::put('/users/{user}', [UserController::class, 'update']);
+        Route::delete('/users/{user}', [UserController::class, 'destroy']);
+    });
 });
