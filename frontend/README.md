@@ -1,6 +1,6 @@
 # Шаблонизатор договоров: фронтенд MVP
 
-React-прототип фронтенда для задачи ТЗ-02. Сейчас проект работает без бекенда: данные шаблонов, переменных и истории документов хранятся в `localStorage`.
+React-фронтенд для задачи ТЗ-02. Приложение подключено к Laravel API из ветки `develop`.
 
 ## Запуск
 
@@ -25,22 +25,29 @@ npm.cmd run dev -- --port 5173
 
 Приложение открывается на `http://127.0.0.1:5173`.
 
+По умолчанию API берётся с `http://localhost:8000/api`. Если нужен другой адрес, задайте переменную:
+
+```bash
+VITE_API_BASE_URL=http://localhost:8000/api
+```
+
 ## Что уже есть
 
 - каталог шаблонов с фильтрами;
-- загрузка мокового `docx/pdf` шаблона;
+- вход и регистрация через Laravel Sanctum token;
+- каталог шаблонов с учётом роли пользователя;
+- загрузка `docx/pdf` шаблона;
 - экран настройки найденных переменных;
+- публикация шаблона;
 - динамическая форма создания документа;
 - локальная валидация обязательных полей, чисел и сумм;
 - предпросмотр введённых данных;
 - история созданных документов;
-- моковое скачивание результата.
+- скачивание результата через API.
 
-## Где подключать бекенд
+## API-слой
 
-Слой обмена с данными находится в `src/api/mockApi.ts`.
-
-Когда Laravel API будет готов, функции из этого файла можно заменить на HTTP-запросы:
+Слой обмена с бекендом находится в `src/api/backendApi.ts`.
 
 - `getTemplates`;
 - `uploadTemplate`;
@@ -49,22 +56,43 @@ npm.cmd run dev -- --port 5173
 - `generateDocument`;
 - `getDocuments`.
 
-Адаптеры под согласованный формат бекенда лежат в `src/api/backendAdapters.ts`.
+Адаптеры формата бекенда лежат в `src/api/backendAdapters.ts`.
 
-## Согласованный API
+## Используемый API
 
-Базовый набор ручек:
+Авторизация:
+
+- `POST /api/register`;
+- `POST /api/login`;
+- `GET /api/me`;
+- `POST /api/logout`.
+
+Шаблоны:
 
 - `GET /api/templates`;
 - `POST /api/templates`;
 - `GET /api/templates/{id}`;
 - `PUT /api/templates/{id}`;
 - `DELETE /api/templates/{id}`;
-- `POST /api/templates/{id}/upload`;
-- `GET /api/documents`;
-- `POST /api/documents`.
+- `POST /api/templates/{id}/versions`;
+- `POST /api/templates/{id}/variables/extract`;
+- `POST /api/templates/{id}/publish`.
 
-`GET /api/templates/{id}` должен возвращать шаблон вместе с `variables`.
+Переменные:
+
+- `POST /api/templates/{id}/variables`;
+- `PUT /api/variables/{id}`;
+- `DELETE /api/variables/{id}`.
+
+Документы:
+
+- `POST /api/templates/{id}/documents`;
+- `GET /api/documents`;
+- `GET /api/documents/{id}`;
+- `GET /api/documents/{id}/download`;
+- `GET /api/documents/{id}/download?format=pdf`.
+
+`GET /api/templates/{id}` возвращает шаблон вместе с `variables`.
 
 Согласованные типы переменных:
 

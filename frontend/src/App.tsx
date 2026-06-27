@@ -1,18 +1,29 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
+  ApiError,
+  downloadDocument,
   generateDocument,
+  getCurrentUser,
   getDocuments,
   getTemplateVariables,
   getTemplates,
+  hasAuthToken,
+  login,
+  logout,
+  publishTemplate,
+  register,
   saveTemplateVariables,
   uploadTemplate,
-} from './api/mockApi';
+} from './api/backendApi';
 import {
+  AuthCredentials,
   DocumentFieldValue,
   GeneratedDocument,
+  RegisterInput,
   TableRowValue,
   Template,
   TemplateVariable,
+  User,
   VariableType,
 } from './types';
 import { formatDate, formatDateTime, formatLabels, parseTags, statusLabels, variableTypeLabels } from './utils';
@@ -26,32 +37,80 @@ const emptyFilters = {
 };
 
 export function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
   const [page, setPage] = useState<Page>('templates');
   const [templates, setTemplates] = useState<Template[]>([]);
   const [documents, setDocuments] = useState<GeneratedDocument[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
 
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId) || templates[0];
+  const canManageTemplates = user?.role === 'admin' || user?.role === 'methodologist';
 
   const reload = async () => {
     setIsLoading(true);
-    const [nextTemplates, nextDocuments] = await Promise.all([getTemplates(), getDocuments()]);
-    setTemplates(nextTemplates);
-    setDocuments(nextDocuments);
-    setSelectedTemplateId((current) => current || nextTemplates[0]?.id || '');
-    setIsLoading(false);
+    setError('');
+    try {
+      const [nextTemplates, nextDocuments] = await Promise.all([getTemplates(), getDocuments()]);
+      setTemplates(nextTemplates);
+      setDocuments(nextDocuments);
+      setSelectedTemplateId((current) => current || nextTemplates[0]?.id || '');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
-    reload();
+    if (!hasAuthToken()) {
+      setIsAuthChecked(true);
+      return;
+    }
+
+    getCurrentUser()
+      .then((currentUser) => {
+        setUser(currentUser);
+        return reload();
+      })
+      .catch((requestError) => {
+        setError(getErrorMessage(requestError));
+      })
+      .finally(() => setIsAuthChecked(true));
   }, []);
 
   const showNotice = (message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(''), 3000);
   };
+
+  const handleAuth = async (action: 'login' | 'register', payload: AuthCredentials | RegisterInput) => {
+    setError('');
+    const currentUser = action === 'login'
+      ? await login(payload as AuthCredentials)
+      : await register(payload as RegisterInput);
+    setUser(currentUser);
+    await reload();
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setUser(null);
+    setTemplates([]);
+    setDocuments([]);
+    setSelectedTemplateId('');
+  };
+
+  if (!isAuthChecked) {
+    return <LoadingState />;
+  }
+
+  if (!user) {
+    return <AuthPage error={error} onSubmit={handleAuth} />;
+  }
 
   return (
     <div className="app-shell">
@@ -66,8 +125,12 @@ export function App() {
 
         <nav className="nav">
           <button className={page === 'templates' ? 'active' : ''} onClick={() => setPage('templates')}>Шаблоны</button>
-          <button className={page === 'upload' ? 'active' : ''} onClick={() => setPage('upload')}>Загрузка</button>
-          <button className={page === 'variables' ? 'active' : ''} onClick={() => setPage('variables')}>Переменные</button>
+          {canManageTemplates && (
+            <>
+              <button className={page === 'upload' ? 'active' : ''} onClick={() => setPage('upload')}>Загрузка</button>
+              <button className={page === 'variables' ? 'active' : ''} onClick={() => setPage('variables')}>Переменные</button>
+            </>
+          )}
           <button className={page === 'create' ? 'active' : ''} onClick={() => setPage('create')}>Создать документ</button>
           <button className={page === 'history' ? 'active' : ''} onClick={() => setPage('history')}>История</button>
         </nav>
@@ -76,7 +139,7 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <div>
-            <p className="eyebrow">React MVP на моковых данных</p>
+            <p className="eyebrow">API: Laravel / Sanctum</p>
             <h1>{getPageTitle(page)}</h1>
           </div>
           <div className="topbar-actions">
@@ -85,11 +148,14 @@ export function App() {
                 <option key={template.id} value={template.id}>{template.name}</option>
               ))}
             </select>
+            <span className="user-badge">{user.name} / {user.role}</span>
             <button className="secondary" onClick={reload}>Обновить</button>
+            <button className="secondary" onClick={handleLogout}>Выйти</button>
           </div>
         </header>
 
         {notice && <div className="notice">{notice}</div>}
+        {error && <div className="error-banner">{error}</div>}
 
         {isLoading ? (
           <LoadingState />
@@ -106,6 +172,7 @@ export function App() {
                   setSelectedTemplateId(id);
                   setPage('create');
                 }}
+                canManageTemplates={canManageTemplates}
               />
             )}
             {page === 'upload' && (
@@ -119,7 +186,13 @@ export function App() {
               />
             )}
             {page === 'variables' && selectedTemplate && (
-              <VariablesPage template={selectedTemplate} onSaved={() => showNotice('Настройки переменных сохранены')} />
+              <VariablesPage
+                template={selectedTemplate}
+                onSaved={async (message = 'Настройки переменных сохранены') => {
+                  showNotice(message);
+                  await reload();
+                }}
+              />
             )}
             {page === 'create' && selectedTemplate && (
               <CreateDocumentPage
@@ -166,14 +239,89 @@ function LoadingState() {
   );
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const firstFieldError = error.errors ? Object.values(error.errors)[0]?.[0] : '';
+    return firstFieldError || error.message;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Неизвестная ошибка';
+}
+
+function AuthPage({
+  error,
+  onSubmit,
+}: {
+  error: string;
+  onSubmit: (action: 'login' | 'register', payload: AuthCredentials | RegisterInput) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [localError, setLocalError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setLocalError('');
+    setIsSubmitting(true);
+    try {
+      await onSubmit(mode, mode === 'login' ? { email, password } : { name, email, password });
+    } catch (requestError) {
+      setLocalError(getErrorMessage(requestError));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={submit}>
+        <div>
+          <p className="eyebrow">Шаблонизатор договоров</p>
+          <h1>{mode === 'login' ? 'Вход' : 'Регистрация'}</h1>
+        </div>
+        {mode === 'register' && (
+          <label>
+            Имя
+            <input value={name} onChange={(event) => setName(event.target.value)} required />
+          </label>
+        )}
+        <label>
+          Email
+          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
+        </label>
+        <label>
+          Пароль
+          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+        </label>
+        {(localError || error) && <div className="error-banner">{localError || error}</div>}
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+            {mode === 'login' ? 'Создать аккаунт' : 'У меня есть аккаунт'}
+          </button>
+          <button disabled={isSubmitting}>{isSubmitting ? 'Отправка...' : mode === 'login' ? 'Войти' : 'Зарегистрироваться'}</button>
+        </div>
+      </form>
+    </main>
+  );
+}
+
 function TemplatesPage({
   templates,
   onConfigure,
   onCreate,
+  canManageTemplates,
 }: {
   templates: Template[];
   onConfigure: (id: string) => void;
   onCreate: (id: string) => void;
+  canManageTemplates: boolean;
 }) {
   const [filters, setFilters] = useState(emptyFilters);
   const categories = Array.from(new Set(templates.map((template) => template.category)));
@@ -229,7 +377,9 @@ function TemplatesPage({
                 <td>v{template.version}</td>
                 <td>{template.variableCount}</td>
                 <td className="actions">
-                  <button className="secondary" onClick={() => onConfigure(template.id)}>Настроить</button>
+                  {canManageTemplates && (
+                    <button className="secondary" onClick={() => onConfigure(template.id)}>Настроить</button>
+                  )}
                   <button disabled={template.status !== 'published'} onClick={() => onCreate(template.id)}>Создать</button>
                 </td>
               </tr>
@@ -247,18 +397,25 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void }
   const [name, setName] = useState('');
   const [category, setCategory] = useState('Договоры');
   const [tags, setTags] = useState('');
-  const [fileName, setFileName] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const canSubmit = name.trim() && fileName;
+  const [error, setError] = useState('');
+  const canSubmit = name.trim() && file;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !file) return;
     setIsSubmitting(true);
-    const format = fileName.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
-    const template = await uploadTemplate({ name, category, tags: parseTags(tags), format });
-    setIsSubmitting(false);
-    onUploaded(template);
+    setError('');
+    try {
+      const format = file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'docx';
+      const template = await uploadTemplate({ name, category, tags: parseTags(tags), format, file });
+      onUploaded(template);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -284,10 +441,11 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void }
         <input
           type="file"
           accept=".docx,.pdf"
-          onChange={(event) => setFileName(event.target.files?.[0]?.name || '')}
+          onChange={(event) => setFile(event.target.files?.[0] || null)}
         />
-        <span>{fileName || 'Выберите DOCX или PDF'}</span>
+        <span>{file?.name || 'Выберите DOCX или PDF'}</span>
       </label>
+      {error && <div className="error-banner">{error}</div>}
       <div className="form-actions">
         <button disabled={!canSubmit || isSubmitting}>{isSubmitting ? 'Загрузка...' : 'Загрузить шаблон'}</button>
       </div>
@@ -295,17 +453,22 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void }
   );
 }
 
-function VariablesPage({ template, onSaved }: { template: Template; onSaved: () => void }) {
+function VariablesPage({ template, onSaved }: { template: Template; onSaved: (message?: string) => void | Promise<void> }) {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     setIsLoading(true);
-    getTemplateVariables(template.id).then((items) => {
-      setVariables(items);
-      setIsLoading(false);
-    });
+    setError('');
+    getTemplateVariables(template.id)
+      .then((items) => {
+        setVariables(items);
+      })
+      .catch((requestError) => setError(getErrorMessage(requestError)))
+      .finally(() => setIsLoading(false));
   }, [template.id]);
 
   const updateVariable = (id: string, patch: Partial<TemplateVariable>) => {
@@ -314,9 +477,28 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: () 
 
   const save = async () => {
     setIsSaving(true);
-    await saveTemplateVariables(template.id, variables);
-    setIsSaving(false);
-    onSaved();
+    setError('');
+    try {
+      await saveTemplateVariables(template.id, variables);
+      await onSaved();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const publish = async () => {
+    setIsPublishing(true);
+    setError('');
+    try {
+      await publishTemplate(template.id);
+      await onSaved('Шаблон опубликован');
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setIsPublishing(false);
+    }
   };
 
   if (isLoading) return <LoadingState />;
@@ -333,6 +515,7 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: () 
           <strong>{variables.length}</strong>
         </div>
       </div>
+      {error && <div className="error-banner">{error}</div>}
 
       <div className="variable-list">
         {variables.map((variable) => (
@@ -376,6 +559,9 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: () 
 
       <div className="form-actions">
         <button onClick={save} disabled={isSaving}>{isSaving ? 'Сохранение...' : 'Сохранить настройки'}</button>
+        <button className="secondary" onClick={publish} disabled={isPublishing || template.status === 'published'}>
+          {template.status === 'published' ? 'Уже опубликован' : isPublishing ? 'Публикация...' : 'Опубликовать'}
+        </button>
       </div>
     </section>
   );
@@ -385,22 +571,26 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [values, setValues] = useState<Record<string, DocumentFieldValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [apiError, setApiError] = useState('');
   const [format, setFormat] = useState<'docx' | 'pdf'>(template.format);
   const [preview, setPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    getTemplateVariables(template.id).then((items) => {
-      setVariables(items);
-      setValues(
-        Object.fromEntries(
-          items.map((item) => [item.name, getInitialFieldValue(item)]),
-        ),
-      );
-      setErrors({});
-      setFormat(template.format);
-      setPreview(false);
-    });
+    setApiError('');
+    getTemplateVariables(template.id)
+      .then((items) => {
+        setVariables(items);
+        setValues(
+          Object.fromEntries(
+            items.map((item) => [item.name, getInitialFieldValue(item)]),
+          ),
+        );
+        setErrors({});
+        setFormat(template.format);
+        setPreview(false);
+      })
+      .catch((requestError) => setApiError(getErrorMessage(requestError)));
   }, [template.id, template.format]);
 
   const validationErrors = () => {
@@ -428,9 +618,15 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
     setIsSubmitting(true);
-    await generateDocument(template, values, format);
-    setIsSubmitting(false);
-    onGenerated();
+    setApiError('');
+    try {
+      await generateDocument(template, values);
+      onGenerated();
+    } catch (requestError) {
+      setApiError(getErrorMessage(requestError));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -449,6 +645,7 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
             </select>
           </label>
         </div>
+        {apiError && <div className="error-banner">{apiError}</div>}
 
         <div className="form-grid single">
           {variables.map((variable) => (
@@ -623,16 +820,27 @@ function HistoryPage({
   onRepeat: (templateId: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
   const filteredDocuments = useMemo(
     () => documents.filter((document) => document.templateName.toLowerCase().includes(query.toLowerCase())),
     [documents, query],
   );
+
+  const download = async (document: GeneratedDocument, format?: 'docx' | 'pdf') => {
+    setError('');
+    try {
+      await downloadDocument(document, format);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  };
 
   return (
     <section className="content-stack">
       <div className="toolbar">
         <input placeholder="Поиск по шаблону" value={query} onChange={(event) => setQuery(event.target.value)} />
       </div>
+      {error && <div className="error-banner">{error}</div>}
       <div className="document-grid">
         {filteredDocuments.map((document) => (
           <article className="document-card" key={document.id}>
@@ -653,7 +861,10 @@ function HistoryPage({
             </dl>
             <div className="actions">
               <button className="secondary" onClick={() => onRepeat(document.templateId)}>Повторить</button>
-              <button onClick={() => window.alert(`Моковое скачивание: ${document.fileName}`)}>Скачать</button>
+              <button onClick={() => download(document)}>Скачать</button>
+              {document.format === 'docx' && (
+                <button className="secondary" onClick={() => download(document, 'pdf')}>PDF</button>
+              )}
             </div>
           </article>
         ))}

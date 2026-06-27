@@ -58,4 +58,21 @@ export interface UploadTemplateInput {
   category: string;
   tags: string[];
   format: TemplateFormat;
+  file: File;
+}
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: 'admin' | 'methodologist' | 'user';
+}
+
+export interface AuthCredentials {
+  email: string;
+  password: string;
+}
+
+export interface RegisterInput extends AuthCredentials {
+  name: string;
 }
