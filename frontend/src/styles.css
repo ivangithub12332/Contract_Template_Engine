@@ -390,6 +390,10 @@ label,
   grid-column: 1 / -1;
 }
 
+.form-empty {
+  grid-column: 1 / -1;
+}
+
 .variable-list {
   display: grid;
   gap: 12px;

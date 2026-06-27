@@ -576,6 +576,24 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
   const [preview, setPreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  if (template.status !== 'published') {
+    return (
+      <section className="content-stack">
+        <div className="summary-band">
+          <div>
+            <span className="muted">Выбранный шаблон</span>
+            <strong>{template.name}</strong>
+          </div>
+          <div>
+            <span className="muted">Статус</span>
+            <strong>{statusLabels[template.status]}</strong>
+          </div>
+        </div>
+        <EmptyState text="Документ можно создать только по опубликованному шаблону. Откройте переменные, настройте поля и нажмите 'Опубликовать'." />
+      </section>
+    );
+  }
+
   useEffect(() => {
     setApiError('');
     getTemplateVariables(template.id)
@@ -657,6 +675,11 @@ function CreateDocumentPage({ template, onGenerated }: { template: Template; onG
               onChange={(value) => setValues((current) => ({ ...current, [variable.name]: value }))}
             />
           ))}
+          {variables.length === 0 && (
+            <div className="form-empty">
+              <EmptyState text="У шаблона нет распознанных переменных. Проверьте разметку шаблона или запустите распознавание после загрузки." />
+            </div>
+          )}
         </div>
 
         <div className="form-actions">
