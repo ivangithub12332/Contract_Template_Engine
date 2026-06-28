@@ -131,16 +131,16 @@ git clone https://github.com/ivangithub12332/Contract_Template_Engine.git backen
 cd "D:\VSC codes\Практика\backend"
 ```
 
-Переключитесь на рабочую ветку frontend:
+Переключитесь на рабочую ветку `full-project`:
 
 ```powershell
-git checkout frontend
+git checkout full-project
 ```
 
 Подтяните последние изменения:
 
 ```powershell
-git pull origin frontend
+git pull origin full-project
 ```
 
 ## Структура проекта
@@ -294,8 +294,8 @@ http://127.0.0.1:5173
 
 ```powershell
 cd "D:\VSC codes\Практика\backend"
-git checkout frontend
-git pull origin frontend
+git checkout full-project
+git pull origin full-project
 ```
 
 Если изменялись frontend-зависимости:
@@ -762,8 +762,8 @@ REACT MVP НА МОКОВЫХ ДАННЫХ
 
 ```powershell
 cd "D:\VSC codes\Практика\backend"
-git checkout frontend
-git pull origin frontend
+git checkout full-project
+git pull origin full-project
 ```
 
 Потом заново:
@@ -893,8 +893,8 @@ docker compose down
 
 ```powershell
 cd "D:\VSC codes\Практика\backend"
-git checkout frontend
-git pull origin frontend
+git checkout full-project
+git pull origin full-project
 ```
 
 ### Проверить сборку frontend
@@ -952,7 +952,7 @@ https://github.com/ivangithub12332/Contract_Template_Engine
 Рабочая ветка:
 
 ```text
-https://github.com/ivangithub12332/Contract_Template_Engine/tree/frontend
+https://github.com/ivangithub12332/Contract_Template_Engine/tree/full-project
 ```
 
 Frontend:
