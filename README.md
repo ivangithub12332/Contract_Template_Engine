@@ -532,7 +532,49 @@ docker exec docs-db psql -U docs_user -d docs_db -c "select id, name, email, rol
 
 ## Тестовые аккаунты
 
-Тестовые аккаунты не приходят из GitHub. Они существуют только в вашей локальной базе, если их создали раньше.
+Если вы запускаете проект на той же локальной базе, где уже проводилось тестирование, можно использовать готовые аккаунты ниже.
+
+Пароль не хранится в README, потому что репозиторий публичный. Его нужно получить у ответственного за тестирование или передать тестерам отдельно в личном чате.
+
+### Рекомендуемые аккаунты для тестеров
+
+Администратор:
+
+```text
+email: frontend-test-1782558496@test.local
+role: admin
+```
+
+Шаблонизатор:
+
+```text
+email: target-flow-1782575165@test.local
+role: methodologist
+```
+
+Для большинства проверок достаточно этих двух аккаунтов. Не создавайте много новых аккаунтов без необходимости.
+
+### Полный список существующих тестовых аккаунтов
+
+```text
+Frontend Tester
+email: frontend-test-1782558496@test.local
+role: admin
+
+Final Smoke
+email: final-smoke-1782561521@test.local
+role: admin
+
+Admin Flow
+email: admin-flow-1782575165@test.local
+role: admin
+
+Target Flow
+email: target-flow-1782575165@test.local
+role: methodologist
+```
+
+Важно: эти аккаунты лежат в локальной PostgreSQL-базе Docker. Они не создаются автоматически из GitHub.
 
 На новом компьютере база будет пустая.
 
