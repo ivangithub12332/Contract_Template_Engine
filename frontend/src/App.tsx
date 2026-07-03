@@ -51,6 +51,7 @@ export function App() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [prefillValues, setPrefillValues] = useState<Record<string, DocumentFieldValue> | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
@@ -68,6 +69,7 @@ export function App() {
       setSelectedTemplateId((current) => (
         nextTemplates.some((template) => template.id === current) ? current : nextTemplates[0]?.id || ''
       ));
+      setRefreshToken((current) => current + 1);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -179,7 +181,9 @@ export function App() {
                 ))}
             </select>
             <span className="user-badge">{user.name} / {user.role}</span>
-            <button className="secondary" onClick={reload}>Обновить</button>
+            <button className="secondary" onClick={reload} disabled={isLoading}>
+              {isLoading ? 'Обновление...' : 'Обновить'}
+            </button>
             <button className="secondary" onClick={handleLogout}>Выйти</button>
           </div>
         </header>
@@ -228,6 +232,7 @@ export function App() {
               selectedTemplate ? (
                 <VariablesPage
                   template={selectedTemplate}
+                  refreshToken={refreshToken}
                   onSaved={async (message = 'Настройки переменных сохранены') => {
                     showNotice(message);
                     await reload();
@@ -244,6 +249,7 @@ export function App() {
                 <CreateDocumentPage
                   template={selectedTemplate}
                   initialValues={prefillValues}
+                  refreshToken={refreshToken}
                   onGenerated={async () => {
                     setPrefillValues(null);
                     await reload();
@@ -268,7 +274,7 @@ export function App() {
               />
             )}
             {page === 'users' && canManageUsers && (
-              <UsersPage currentUser={user} onCurrentUserUpdated={setUser} />
+              <UsersPage currentUser={user} refreshToken={refreshToken} onCurrentUserUpdated={setUser} />
             )}
           </>
         )}
@@ -543,7 +549,15 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void |
   );
 }
 
-function VariablesPage({ template, onSaved }: { template: Template; onSaved: (message?: string) => void | Promise<void> }) {
+function VariablesPage({
+  template,
+  refreshToken,
+  onSaved,
+}: {
+  template: Template;
+  refreshToken: number;
+  onSaved: (message?: string) => void | Promise<void>;
+}) {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -561,7 +575,7 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
       })
       .catch((requestError) => setError(getErrorMessage(requestError)))
       .finally(() => setIsLoading(false));
-  }, [template.id]);
+  }, [template.id, refreshToken]);
 
   const updateVariable = (id: string, patch: Partial<TemplateVariable>) => {
     setVariables((current) => current.map((variable) => (variable.id === id ? { ...variable, ...patch } : variable)));
@@ -693,10 +707,12 @@ function VariablesPage({ template, onSaved }: { template: Template; onSaved: (me
 function CreateDocumentPage({
   template,
   initialValues,
+  refreshToken,
   onGenerated,
 }: {
   template: Template;
   initialValues: Record<string, DocumentFieldValue> | null;
+  refreshToken: number;
   onGenerated: () => void | Promise<void>;
 }) {
   const [variables, setVariables] = useState<TemplateVariable[]>([]);
@@ -725,11 +741,11 @@ function CreateDocumentPage({
         const defaultValues = Object.fromEntries(
           items.map((item) => [item.name, getInitialFieldValue(item)]),
         );
-        setValues({ ...defaultValues, ...(initialValues || {}) });
+        setValues((currentValues) => ({ ...defaultValues, ...currentValues, ...(initialValues || {}) }));
         setErrors({});
       })
       .catch((requestError) => setApiError(getErrorMessage(requestError)));
-  }, [template.id, template.format, template.status, initialValues]);
+  }, [template.id, template.format, template.status, initialValues, refreshToken]);
 
   if (template.status !== 'published') {
     return (
@@ -1055,9 +1071,11 @@ function HistoryPage({
 
 function UsersPage({
   currentUser,
+  refreshToken,
   onCurrentUserUpdated,
 }: {
   currentUser: User;
+  refreshToken: number;
   onCurrentUserUpdated: (user: User) => void;
 }) {
   const [users, setUsers] = useState<User[]>([]);
@@ -1082,7 +1100,7 @@ function UsersPage({
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [refreshToken]);
 
   const filteredUsers = users.filter((user) => {
     const matchesQuery = [user.name, user.email].some((value) => value.toLowerCase().includes(query.toLowerCase()));
