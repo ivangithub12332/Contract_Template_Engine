@@ -139,9 +139,17 @@ class TemplateController extends Controller
         }
 
         $keys = $extractor->extractKeys($version->full_path, $template->format);
+        $blocks = $extractor->inspectDocxBlocks($version->full_path, $template->format);
+        $tableColumnKeys = collect($blocks)
+            ->filter(fn (array $block) => $block['type'] === 'table')
+            ->flatMap(fn (array $block) => $block['columns'])
+            ->unique()
+            ->values()
+            ->all();
         $invalidVariables = $template->variables()
             ->get()
-            ->filter(fn ($variable) => ! preg_match('/^[A-Za-z0-9_]+$/', $variable->key));
+            ->filter(fn ($variable) => ! preg_match('/^[A-Za-z0-9_]+$/', $variable->key)
+                || in_array($variable->key, $tableColumnKeys, true));
 
         foreach ($invalidVariables as $variable) {
             $variable->delete();
@@ -155,18 +163,38 @@ class TemplateController extends Controller
                 continue;
             }
 
+            if (in_array($key, $tableColumnKeys, true)) {
+                continue;
+            }
+
+            $block = $blocks[$key] ?? null;
+
             if (in_array($key, $existingKeys, true)) {
+                if ($block !== null) {
+                    $template->variables()
+                        ->where('key', $key)
+                        ->update([
+                            'type' => $block['type'],
+                            'options' => $block['type'] === 'table'
+                                ? ['columns' => $block['columns']]
+                                : null,
+                        ]);
+                }
+
                 continue;
             }
 
             // A pdf checkbox field is the natural AcroForm equivalent of a boolean variable.
-            $type = ($pdfFields[$key]['type'] ?? null) === 'Button' ? 'boolean' : 'text';
+            $type = $block['type'] ?? (($pdfFields[$key]['type'] ?? null) === 'Button' ? 'boolean' : 'text');
 
             $template->variables()->create([
                 'key' => $key,
                 'label' => $key,
                 'type' => $type,
                 'required' => false,
+                'options' => $block !== null && $block['type'] === 'table'
+                    ? ['columns' => $block['columns']]
+                    : null,
             ]);
         }
 

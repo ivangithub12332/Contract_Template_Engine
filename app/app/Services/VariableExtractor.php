@@ -65,6 +65,37 @@ class VariableExtractor
     }
 
     /**
+     * @return array<string, array{type: 'boolean'|'table', columns: string[]}>
+     */
+    public function inspectDocxBlocks(string $absolutePath, string $format): array
+    {
+        if ($format !== 'docx') {
+            return [];
+        }
+
+        $text = $this->readPlainText($absolutePath);
+        $blocks = [];
+
+        preg_match_all('/\{\{([A-Za-z0-9_]+)\}\}(.*?)\{\{\/\1\}\}/s', $text, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            $key = $match[1];
+            preg_match_all('/\{\{([A-Za-z0-9_]+)\}\}/', $match[2], $innerMatches);
+
+            $columns = array_values(array_unique(array_filter(
+                $innerMatches[1] ?? [],
+                fn (string $innerKey) => $innerKey !== $key
+            )));
+
+            $blocks[$key] = [
+                'type' => $this->looksLikeBooleanBlock($key) ? 'boolean' : 'table',
+                'columns' => $columns,
+            ];
+        }
+
+        return $blocks;
+    }
+
+    /**
      * Check the template for structural problems before it can be published/extracted:
      * docx -> unmatched braces, empty placeholders; pdf -> presence of at least one form field.
      *
@@ -164,6 +195,16 @@ class VariableExtractor
             'type' => $current['FieldType'] ?? 'Text',
             'onValue' => $onValue,
         ];
+    }
+
+    private function looksLikeBooleanBlock(string $key): bool
+    {
+        return str_starts_with($key, 'has_')
+            || str_starts_with($key, 'is_')
+            || str_starts_with($key, 'include_')
+            || str_starts_with($key, 'show_')
+            || str_starts_with($key, 'need_')
+            || str_starts_with($key, 'with_');
     }
 
     /**

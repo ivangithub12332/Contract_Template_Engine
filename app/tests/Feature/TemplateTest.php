@@ -104,6 +104,48 @@ class TemplateTest extends TestCase
         $this->assertSame(['client_name'], $keys);
     }
 
+    public function test_extracting_variables_detects_conditional_and_table_blocks(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $template = $this->uploadTemplateFile($methodologist, $this->blockFixture());
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk()->assertJsonPath('variables_count', 4);
+
+        $variables = collect($response->json('variables'))->keyBy('key');
+        $this->assertSame('text', $variables['contract_number']['type']);
+        $this->assertSame('table', $variables['items']['type']);
+        $this->assertSame(['columns' => ['item_name', 'quantity']], $variables['items']['options']);
+        $this->assertSame('boolean', $variables['has_delivery']['type']);
+        $this->assertSame('text', $variables['delivery_address']['type']);
+        $this->assertFalse($variables->has('item_name'));
+        $this->assertFalse($variables->has('quantity'));
+    }
+
+    public function test_extracting_variables_removes_table_columns_saved_as_standalone_fields(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $template = $this->uploadTemplateFile($methodologist, $this->blockFixture());
+
+        Variable::create([
+            'template_id' => $template->id,
+            'key' => 'item_name',
+            'label' => 'item_name',
+            'type' => 'text',
+            'required' => false,
+        ]);
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk();
+
+        $keys = Variable::where('template_id', $template->id)->pluck('key')->all();
+        $this->assertNotContains('item_name', $keys);
+    }
+
     public function test_extracting_variables_rejects_broken_markup(): void
     {
         $methodologist = User::factory()->create(['role' => 'methodologist']);
@@ -199,6 +241,36 @@ class TemplateTest extends TestCase
         return new UploadedFile(
             $path,
             'split_placeholder.docx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            null,
+            true
+        );
+    }
+
+    private function blockFixture(): UploadedFile
+    {
+        return $this->modifiedTemplateFixture(
+            '{{contract_number}} {{items}}{{item_name}} {{quantity}}{{/items}} {{has_delivery}}{{delivery_address}}{{/has_delivery}}',
+            'block_template.docx'
+        );
+    }
+
+    private function modifiedTemplateFixture(string $replacement, string $name): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'template').'.docx';
+        copy(base_path('tests/Fixtures/template.docx'), $path);
+
+        $zip = new ZipArchive();
+        $zip->open($path);
+        $xml = $zip->getFromName('word/document.xml');
+        $xml = str_replace('{{client_name}}', $replacement, $xml);
+        $zip->deleteName('word/document.xml');
+        $zip->addFromString('word/document.xml', $xml);
+        $zip->close();
+
+        return new UploadedFile(
+            $path,
+            $name,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             null,
             true
