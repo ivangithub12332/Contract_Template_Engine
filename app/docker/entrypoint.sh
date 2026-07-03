@@ -21,6 +21,7 @@ until php artisan db:show >/dev/null 2>&1; do
 done
 
 php artisan migrate --force
+php artisan db:seed --force
 
 if [ ! -L public/storage ]; then
     php artisan storage:link
