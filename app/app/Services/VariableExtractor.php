@@ -8,6 +8,49 @@ use ZipArchive;
 
 class VariableExtractor
 {
+    public function normalizeDocxPlaceholders(string $absolutePath, string $format): void
+    {
+        if ($format !== 'docx') {
+            return;
+        }
+
+        $zip = new ZipArchive();
+        if ($zip->open($absolutePath) !== true) {
+            throw new RuntimeException('Не удалось открыть файл шаблона.');
+        }
+
+        $xml = $zip->getFromName('word/document.xml');
+        if ($xml === false) {
+            $zip->close();
+            throw new RuntimeException('Файл шаблона повреждён или не является docx.');
+        }
+
+        $normalizedXml = preg_replace_callback(
+            '/\{\{(?:(?!\}\}).)*\}\}/s',
+            function (array $match): string {
+                $plainPlaceholder = html_entity_decode(strip_tags($match[0]), ENT_QUOTES | ENT_XML1, 'UTF-8');
+                $plainPlaceholder = preg_replace('/\s+/', '', $plainPlaceholder);
+
+                if (! preg_match('/^\{\{\/?[A-Za-z0-9_]+\}\}$/', $plainPlaceholder)) {
+                    return $match[0];
+                }
+
+                return $plainPlaceholder;
+            },
+            $xml
+        );
+
+        if ($normalizedXml === null || $normalizedXml === $xml) {
+            $zip->close();
+
+            return;
+        }
+
+        $zip->deleteName('word/document.xml');
+        $zip->addFromString('word/document.xml', $normalizedXml);
+        $zip->close();
+    }
+
     /**
      * Extract unique placeholder keys ({{key}} for docx, AcroForm field names for pdf),
      * in order of first appearance.

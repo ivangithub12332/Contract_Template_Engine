@@ -38,10 +38,11 @@ class TemplateController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreTemplateRequest $request)
+    public function store(StoreTemplateRequest $request, VariableExtractor $extractor)
     {
         $data = $request->validated();
         $path = $request->file('file')->store('templates', 'public');
+        $extractor->normalizeDocxPlaceholders(storage_path('app/public/'.$path), $data['format']);
 
         $template = Template::create([
             'name' => $data['name'],
@@ -98,13 +99,14 @@ class TemplateController extends Controller
     /**
      * Upload a new version of an existing template without overwriting old ones.
      */
-    public function storeVersion(Request $request, Template $template)
+    public function storeVersion(Request $request, Template $template, VariableExtractor $extractor)
     {
         $request->validate([
             'file' => ['required', 'file', 'mimes:docx,pdf', 'max:20480'],
         ]);
 
         $path = $request->file('file')->store('templates', 'public');
+        $extractor->normalizeDocxPlaceholders(storage_path('app/public/'.$path), $template->format);
 
         $nextVersionNumber = $template->versions()->max('version_number') + 1;
 
@@ -129,16 +131,30 @@ class TemplateController extends Controller
             abort(422, 'У шаблона нет ни одной загруженной версии.');
         }
 
+        $extractor->normalizeDocxPlaceholders($version->full_path, $template->format);
+
         $errors = $extractor->validate($version->full_path, $template->format);
         if ($errors !== []) {
             return response()->json(['errors' => $errors], 422);
         }
 
         $keys = $extractor->extractKeys($version->full_path, $template->format);
+        $invalidVariables = $template->variables()
+            ->get()
+            ->filter(fn ($variable) => ! preg_match('/^[A-Za-z0-9_]+$/', $variable->key));
+
+        foreach ($invalidVariables as $variable) {
+            $variable->delete();
+        }
+
         $existingKeys = $template->variables()->pluck('key')->all();
         $pdfFields = $template->format === 'pdf' ? $extractor->inspectPdfFields($version->full_path) : [];
 
         foreach ($keys as $key) {
+            if (! preg_match('/^[A-Za-z0-9_]+$/', $key)) {
+                continue;
+            }
+
             if (in_array($key, $existingKeys, true)) {
                 continue;
             }
@@ -166,6 +182,8 @@ class TemplateController extends Controller
         if (! $version) {
             abort(422, 'У шаблона нет ни одной загруженной версии.');
         }
+
+        $extractor->normalizeDocxPlaceholders($version->full_path, $template->format);
 
         $errors = $extractor->validate($version->full_path, $template->format);
         if ($errors !== []) {

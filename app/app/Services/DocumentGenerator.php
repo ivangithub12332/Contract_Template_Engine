@@ -36,6 +36,8 @@ class DocumentGenerator
         // Required by ТЗ 4.2 ("экранируются спецсимволы разметки"); off by default in PhpWord.
         Settings::setOutputEscapingEnabled(true);
 
+        $this->extractor->normalizeDocxPlaceholders($version->full_path, $version->template->format);
+
         $processor = new TemplateProcessor($version->full_path);
         $processor->setMacroChars('{{', '}}');
 

@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\Template;
 use App\Models\User;
+use App\Models\Variable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
+use ZipArchive;
 
 class TemplateTest extends TestCase
 {
@@ -67,6 +69,41 @@ class TemplateTest extends TestCase
             ->assertJsonPath('variables.0.key', 'client_name');
     }
 
+    public function test_extracting_variables_normalizes_placeholders_split_by_word_runs(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $template = $this->uploadTemplateFile($methodologist, $this->splitPlaceholderFixture());
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk()
+            ->assertJsonPath('variables_count', 1)
+            ->assertJsonPath('variables.0.key', 'client_name');
+    }
+
+    public function test_extracting_variables_removes_invalid_keys_saved_before_normalization(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $template = $this->uploadTemplateFile($methodologist, $this->splitPlaceholderFixture());
+
+        Variable::create([
+            'template_id' => $template->id,
+            'key' => '</w:t><w:r><w:t>client_name',
+            'label' => 'broken',
+            'type' => 'text',
+            'required' => false,
+        ]);
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk();
+
+        $keys = Variable::where('template_id', $template->id)->pluck('key')->all();
+        $this->assertSame(['client_name'], $keys);
+    }
+
     public function test_extracting_variables_rejects_broken_markup(): void
     {
         $methodologist = User::factory()->create(['role' => 'methodologist']);
@@ -124,12 +161,47 @@ class TemplateTest extends TestCase
 
     private function uploadTemplate(User $methodologist, string $fixture, string $format = 'docx'): Template
     {
+        return $this->uploadTemplateFile($methodologist, $this->fixture($fixture), $format, $fixture);
+    }
+
+    private function uploadTemplateFile(
+        User $methodologist,
+        UploadedFile $file,
+        string $format = 'docx',
+        string $name = 'template.docx'
+    ): Template {
         $response = $this->actingAs($methodologist, 'sanctum')->postJson('/api/templates', [
-            'name' => 'Договор '.$fixture,
+            'name' => 'Договор '.$name,
             'format' => $format,
-            'file' => $this->fixture($fixture),
+            'file' => $file,
         ]);
 
         return Template::find($response->json('id'));
+    }
+
+    private function splitPlaceholderFixture(): UploadedFile
+    {
+        $path = tempnam(sys_get_temp_dir(), 'split-placeholder').'.docx';
+        copy(base_path('tests/Fixtures/template.docx'), $path);
+
+        $zip = new ZipArchive();
+        $zip->open($path);
+        $xml = $zip->getFromName('word/document.xml');
+        $xml = str_replace(
+            '{{client_name}}',
+            '{{cli</w:t></w:r><w:r><w:t>ent_name}}',
+            $xml
+        );
+        $zip->deleteName('word/document.xml');
+        $zip->addFromString('word/document.xml', $xml);
+        $zip->close();
+
+        return new UploadedFile(
+            $path,
+            'split_placeholder.docx',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            null,
+            true
+        );
     }
 }
