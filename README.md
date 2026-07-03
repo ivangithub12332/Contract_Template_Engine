@@ -155,41 +155,6 @@ backend/
 
 Важно: запускать backend нужно из папки `app/`, а frontend из папки `frontend/`.
 
-## Быстрый запуск одной командой
-
-Если Git, Docker Desktop и Node.js уже установлены, проект можно запустить одной командой из корня проекта.
-
-Откройте PowerShell:
-
-```powershell
-cd "D:\VSC codes\Практика\backend"
-.\start-project.cmd
-```
-
-Скрипт сам:
-
-- запустит Docker Desktop, если он ещё не запущен;
-- дождётся готовности Docker;
-- поднимет backend-контейнеры;
-- дождётся backend API;
-- запустит frontend;
-- проверит, что сайт открылся.
-
-После успешного запуска откройте:
-
-```text
-http://127.0.0.1:5173
-```
-
-Остановить проект тоже можно одной командой:
-
-```powershell
-cd "D:\VSC codes\Практика\backend"
-.\stop-project.cmd
-```
-
-Если быстрый запуск не сработал, используйте ручной запуск ниже. Чаще всего причина в том, что не установлен Docker Desktop, не установлен Node.js или Docker Desktop ещё не успел полностью стартовать.
-
 ## Первый запуск backend
 
 Backend запускается в Docker.
@@ -253,7 +218,7 @@ npm.cmd install
 Запустите frontend:
 
 ```powershell
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 Откройте в браузере:
@@ -312,7 +277,7 @@ Frontend:
 
 ```powershell
 cd "D:\VSC codes\Практика\backend\frontend"
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 Открыть:
@@ -683,7 +648,7 @@ frontend/src/api/backendApi.ts
 ```powershell
 cd "D:\VSC codes\Практика\backend\frontend"
 $env:VITE_API_BASE_URL="http://localhost:8000/api"
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 Обычно это не нужно.
@@ -805,7 +770,7 @@ git pull origin full-project
 
 ```powershell
 cd "D:\VSC codes\Практика\backend\frontend"
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 В браузере нажмите:
@@ -881,7 +846,7 @@ docker compose down
 
 ```powershell
 npm.cmd install
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 вместо:
@@ -906,7 +871,7 @@ Frontend:
 
 ```powershell
 cd "D:\VSC codes\Практика\backend\frontend"
-npm.cmd run dev -- --host 127.0.0.1 --port 5173
+npm.cmd run dev -- --host 127.0.0.1
 ```
 
 ### Остановить всё
