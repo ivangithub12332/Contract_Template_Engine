@@ -36,6 +36,13 @@ import { formatDate, formatDateTime, formatLabels, parseTags, roleLabels, status
 
 type Page = 'templates' | 'upload' | 'variables' | 'create' | 'history' | 'users';
 
+const MAX_TEMPLATE_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+const TEMPLATE_FILE_SIZE_ERROR = 'Размер файла не должен превышать 50 МБ.';
+
+function isTemplateFileSizeValid(file: File): boolean {
+  return file.size <= MAX_TEMPLATE_FILE_SIZE_BYTES;
+}
+
 const emptyFilters = {
   search: '',
   category: 'all',
@@ -498,6 +505,17 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void |
   const [error, setError] = useState('');
   const canSubmit = name.trim() && file;
 
+  const selectFile = (selectedFile: File | null) => {
+    if (selectedFile && !isTemplateFileSizeValid(selectedFile)) {
+      setFile(null);
+      setError(TEMPLATE_FILE_SIZE_ERROR);
+      return;
+    }
+
+    setFile(selectedFile);
+    setError('');
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!canSubmit || !file) return;
@@ -537,7 +555,7 @@ function UploadPage({ onUploaded }: { onUploaded: (template: Template) => void |
         <input
           type="file"
           accept=".docx,.pdf"
-          onChange={(event) => setFile(event.target.files?.[0] || null)}
+          onChange={(event) => selectFile(event.target.files?.[0] || null)}
         />
         <span>{file?.name || 'Выберите DOCX или PDF'}</span>
       </label>
@@ -624,6 +642,17 @@ function VariablesPage({
     }
   };
 
+  const selectVersionFile = (selectedFile: File | null) => {
+    if (selectedFile && !isTemplateFileSizeValid(selectedFile)) {
+      setVersionFile(null);
+      setError(TEMPLATE_FILE_SIZE_ERROR);
+      return;
+    }
+
+    setVersionFile(selectedFile);
+    setError('');
+  };
+
   if (isLoading) return <LoadingState />;
 
   return (
@@ -644,7 +673,7 @@ function VariablesPage({
           <input
             type="file"
             accept=".docx,.pdf"
-            onChange={(event) => setVersionFile(event.target.files?.[0] || null)}
+            onChange={(event) => selectVersionFile(event.target.files?.[0] || null)}
           />
           <span>{versionFile?.name || 'Выберите DOCX или PDF'}</span>
         </label>

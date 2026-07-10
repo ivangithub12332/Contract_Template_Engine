@@ -12,3 +12,10 @@ RUN { \
         echo "opcache.memory_consumption=256"; \
         echo "opcache.max_accelerated_files=20000"; \
     } > /usr/local/etc/php/conf.d/zz-opcache-dev.ini
+
+# Large templates are part of the acceptance and stress-test scenarios.
+RUN { \
+        echo "upload_max_filesize=50M"; \
+        echo "post_max_size=55M"; \
+        echo "memory_limit=512M"; \
+    } > /usr/local/etc/php/conf.d/zz-template-upload.ini

@@ -7,6 +7,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StoreTemplateRequest extends FormRequest
 {
+    public const MAX_FILE_SIZE_KB = 51200;
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -28,7 +30,15 @@ class StoreTemplateRequest extends FormRequest
             'format' => ['required', 'in:docx,pdf'],
             'tags' => ['nullable', 'array'],
             'tags.*' => ['string', 'max:255'],
-            'file' => ['required', 'file', 'mimes:docx,pdf', 'max:20480'],
+            'file' => ['required', 'file', 'mimes:docx,pdf', 'max:'.self::MAX_FILE_SIZE_KB],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'file.max' => 'Размер файла не должен превышать 50 МБ.',
+            'file.uploaded' => 'Не удалось загрузить файл. Максимальный размер - 50 МБ.',
         ];
     }
 }

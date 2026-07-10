@@ -2,11 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Http\Requests\StoreTemplateRequest;
 use App\Models\Template;
 use App\Models\User;
 use App\Models\Variable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Validator;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -54,6 +56,16 @@ class TemplateTest extends TestCase
         ]);
 
         $response->assertForbidden();
+    }
+
+    public function test_template_upload_size_limit_accepts_50_mb_and_rejects_larger_files(): void
+    {
+        $rule = ['required', 'file', 'max:'.StoreTemplateRequest::MAX_FILE_SIZE_KB];
+        $accepted = UploadedFile::fake()->create('accepted.docx', 50 * 1024);
+        $rejected = UploadedFile::fake()->create('rejected.docx', (50 * 1024) + 1);
+
+        $this->assertFalse(Validator::make(['file' => $accepted], ['file' => $rule])->fails());
+        $this->assertTrue(Validator::make(['file' => $rejected], ['file' => $rule])->fails());
     }
 
     public function test_extracting_variables_registers_placeholders_from_the_docx(): void
@@ -122,6 +134,35 @@ class TemplateTest extends TestCase
         $this->assertSame('text', $variables['delivery_address']['type']);
         $this->assertFalse($variables->has('item_name'));
         $this->assertFalse($variables->has('quantity'));
+    }
+
+    public function test_extracting_two_hundred_variables_does_not_create_duplicates(): void
+    {
+        $methodologist = User::factory()->create(['role' => 'methodologist']);
+        $scalarPlaceholders = collect(range(1, 198))
+            ->map(fn (int $number) => sprintf('{{field_%03d}}', $number))
+            ->implode(' ');
+        $markup = $scalarPlaceholders
+            .' {{include_extra_terms}}Conditional text{{/include_extra_terms}}'
+            .' {{attachments}}{{attachment_name}} {{attachment_note}}{{/attachments}}';
+        $template = $this->uploadTemplateFile(
+            $methodologist,
+            $this->modifiedTemplateFixture($markup, 'two_hundred_variables.docx')
+        );
+
+        $response = $this->actingAs($methodologist, 'sanctum')
+            ->postJson("/api/templates/{$template->id}/variables/extract");
+
+        $response->assertOk()->assertJsonPath('variables_count', 200);
+
+        $variables = collect($response->json('variables'));
+        $this->assertSame(200, $variables->pluck('key')->unique()->count());
+        $this->assertSame('boolean', $variables->firstWhere('key', 'include_extra_terms')['type']);
+        $this->assertSame('table', $variables->firstWhere('key', 'attachments')['type']);
+        $this->assertSame(
+            ['columns' => ['attachment_name', 'attachment_note']],
+            $variables->firstWhere('key', 'attachments')['options']
+        );
     }
 
     public function test_extracting_variables_removes_table_columns_saved_as_standalone_fields(): void

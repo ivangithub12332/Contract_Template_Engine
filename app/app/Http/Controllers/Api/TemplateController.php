@@ -102,7 +102,10 @@ class TemplateController extends Controller
     public function storeVersion(Request $request, Template $template, VariableExtractor $extractor)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:docx,pdf', 'max:20480'],
+            'file' => ['required', 'file', 'mimes:docx,pdf', 'max:'.StoreTemplateRequest::MAX_FILE_SIZE_KB],
+        ], [
+            'file.max' => 'Размер файла не должен превышать 50 МБ.',
+            'file.uploaded' => 'Не удалось загрузить файл. Максимальный размер - 50 МБ.',
         ]);
 
         $path = $request->file('file')->store('templates', 'public');
