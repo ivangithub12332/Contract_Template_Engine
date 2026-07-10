@@ -899,7 +899,12 @@ function getInitialFieldValue(variable: TemplateVariable): DocumentFieldValue {
   }
 
   if (variable.type === 'table') {
-    return [];
+    try {
+      const rows = JSON.parse(variable.defaultValue);
+      return Array.isArray(rows) ? rows : [];
+    } catch {
+      return [];
+    }
   }
 
   return variable.defaultValue;

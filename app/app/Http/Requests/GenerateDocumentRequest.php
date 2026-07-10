@@ -23,7 +23,7 @@ class GenerateDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'values' => ['required', 'array'],
+            'values' => ['present', 'array'],
         ];
     }
 }

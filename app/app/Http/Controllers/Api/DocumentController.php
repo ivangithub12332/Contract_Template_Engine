@@ -60,8 +60,8 @@ class DocumentController extends Controller
             abort(422, 'У шаблона нет ни одной загруженной версии.');
         }
 
-        $values = $request->validated()['values'];
         $variables = $template->variables;
+        $values = $this->applyDefaultValues($variables, $request->validated()['values']);
 
         $this->validateValues($variables, $values);
 
@@ -172,6 +172,36 @@ class DocumentController extends Controller
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    /**
+     * @param Collection<int, Variable> $variables
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    private function applyDefaultValues(Collection $variables, array $values): array
+    {
+        foreach ($variables as $variable) {
+            if (array_key_exists($variable->key, $values) || $variable->default_value === null) {
+                continue;
+            }
+
+            $values[$variable->key] = match ($variable->type) {
+                'boolean' => filter_var($variable->default_value, FILTER_VALIDATE_BOOLEAN),
+                'table' => $this->decodeTableDefault($variable->default_value),
+                default => $variable->default_value,
+            };
+        }
+
+        return $values;
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    private function decodeTableDefault(string $defaultValue): array
+    {
+        $decoded = json_decode($defaultValue, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function formatDocument(Document $document): array
