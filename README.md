@@ -149,6 +149,7 @@ git pull origin full-project
 backend/
   app/                 Laravel backend
   frontend/            React frontend
+  test-templates/      готовый DOCX для стресс-теста
   README.md            эта инструкция
   docker-compose.yml   старый compose-файл в корне, для запуска лучше использовать app/docker-compose.yml
 ```
@@ -441,6 +442,9 @@ docker exec -w /var/www/app docs-app php artisan tinker --execute="App\Models\Us
 26. Если роль `admin`, в `Шаблоны` проверить удаление тестового шаблона.
 
 ## Как подготовить шаблон DOCX
+
+Готовый стресс-шаблон находится в `test-templates/стресс_тест_200_переменных_30МБ.docx`.
+Он содержит 200 переменных, условный блок, повторяющийся блок и встроенное изображение; размер файла около 30 МБ.
 
 В DOCX используются плейсхолдеры в двойных фигурных скобках.
 
